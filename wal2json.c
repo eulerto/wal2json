@@ -212,12 +212,8 @@ pg_decode_begin_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 		appendStringInfo(ctx->out, "\t\"xid\": %u,\n", txn->xid);
 
 	if (data->include_lsn) {
-		// uint32 id, off;
-		// id = (uint32) (ctx->write_location >> 32);
-		// off = (uint32) ctx->write_location;
-		// appendStringInfo(ctx->out, "\t\"lsn\": %X/%X,\n", id, off);
 		char *lsn_str = DatumGetCString(DirectFunctionCall1(pg_lsn_out, ctx->write_location));
-		appendStringInfo(ctx->out, "\t\"lsn\": \"%s\",\n", lsn_str);
+		appendStringInfo(ctx->out, "\t\"start_lsn\": \"%s\",\n", lsn_str);
 		pfree(lsn_str);
 	}
 
@@ -246,7 +242,14 @@ pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	/* Transaction ends */
 	OutputPluginPrepareWrite(ctx, true);
 
-	appendStringInfoString(ctx->out, "\t]\n}");
+	/* Make sure the commas and new lines work with and without include_lsn */
+	appendStringInfoString(ctx->out, "\t]");
+	if (data->include_lsn) {
+		char *lsn_str = DatumGetCString(DirectFunctionCall1(pg_lsn_out, commit_lsn));
+		appendStringInfo(ctx->out, ",\n\t\"end_lsn\": \"%s\"", lsn_str);
+		pfree(lsn_str);
+	}
+	appendStringInfoString(ctx->out, "\n}");
 
 	OutputPluginWrite(ctx, true);
 }
