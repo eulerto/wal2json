@@ -84,45 +84,18 @@ SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'inc
 WARNING:  table "table_with_pk" without primary key or replica identity is nothing
 WARNING:  table "table_without_pk" without primary key or replica identity is nothing
 WARNING:  table "table_with_unique" without primary key or replica identity is nothing
-        data         
----------------------
- {                  +
-         "change": [
-         ]          +
- }
- {                  +
-         "change": [
-         ]          +
- }
- {                  +
-         "change": [
-         ]          +
- }
- {                  +
-         "change": [
-         ]          +
- }
- {                  +
-         "change": [
-         ]          +
- }
- {                  +
-         "change": [
-         ]          +
- }
- {                  +
-         "change": [
-         ]          +
- }
- {                  +
-         "change": [
-         ]          +
- }
- {                  +
-         "change": [
-         ]          +
- }
-(18 rows)
+     data      
+---------------
+ {"change":[]}
+ {"change":[]}
+ {"change":[]}
+ {"change":[]}
+ {"change":[]}
+ {"change":[]}
+ {"change":[]}
+ {"change":[]}
+ {"change":[]}
+(9 rows)
 
 SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
  ?column? 

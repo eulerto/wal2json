@@ -210,26 +210,24 @@ pg_decode_begin_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 	/* Transaction starts */
 	OutputPluginPrepareWrite(ctx, true);
 
-	appendStringInfoString(ctx->out, "{\n");
+	appendStringInfoString(ctx->out, "{");
 
 	if (data->include_xids)
-		appendStringInfo(ctx->out, "\t\"xid\": %u,\n", txn->xid);
+		appendStringInfo(ctx->out, "\"xid\":%u,", txn->xid);
 
 	if (data->include_lsn)
 	{
 		char *lsn_str = DatumGetCString(DirectFunctionCall1(pg_lsn_out, txn->end_lsn));
 
-		appendStringInfo(ctx->out, "\t\"nextlsn\": \"%s\",\n", lsn_str);
+		appendStringInfo(ctx->out, "\"nextlsn\":\"%s\",", lsn_str);
 
 		pfree(lsn_str);
 	}
 
 	if (data->include_timestamp)
-		appendStringInfo(ctx->out, "\t\"timestamp\": \"%s\",\n", timestamptz_to_str(txn->commit_time));
+		appendStringInfo(ctx->out, "\"timestamp\":\"%s\",", timestamptz_to_str(txn->commit_time));
 
-	appendStringInfoString(ctx->out, "\t\"change\": [");
-
-	OutputPluginWrite(ctx, true);
+	appendStringInfoString(ctx->out, "\"change\":[");
 }
 
 /* COMMIT callback */
@@ -247,9 +245,7 @@ pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	elog(DEBUG1, "# of subxacts: %d", txn->nsubtxns);
 
 	/* Transaction ends */
-	OutputPluginPrepareWrite(ctx, true);
-
-	appendStringInfoString(ctx->out, "\t]\n}");
+	appendStringInfoString(ctx->out, "]}");
 
 	OutputPluginWrite(ctx, true);
 }
@@ -336,16 +332,16 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 	 */
 	if (replident)
 	{
-		appendStringInfoString(&colnames, "\t\t\t\"oldkeys\": {\n");
-		appendStringInfoString(&colnames, "\t\t\t\t\"keynames\": [");
-		appendStringInfoString(&coltypes, "\t\t\t\t\"keytypes\": [");
-		appendStringInfoString(&colvalues, "\t\t\t\t\"keyvalues\": [");
+		appendStringInfoString(&colnames, "\"oldkeys\":{");
+		appendStringInfoString(&colnames, "\"keynames\":[");
+		appendStringInfoString(&coltypes, "\"keytypes\":[");
+		appendStringInfoString(&colvalues, "\"keyvalues\":[");
 	}
 	else
 	{
-		appendStringInfoString(&colnames, "\t\t\t\"columnnames\": [");
-		appendStringInfoString(&coltypes, "\t\t\t\"columntypes\": [");
-		appendStringInfoString(&colvalues, "\t\t\t\"columnvalues\": [");
+		appendStringInfoString(&colnames, "\"columnnames\":[");
+		appendStringInfoString(&coltypes, "\"columntypes\":[");
+		appendStringInfoString(&colvalues, "\"columnvalues\":[");
 	}
 
 	/* Print column information (name, type, value) */
@@ -477,27 +473,27 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 
 		/* The first column does not have comma */
 		if (strcmp(comma, "") == 0)
-			comma = ", ";
+			comma = ",";
 	}
 
 	/* Column info ends */
 	if (replident)
 	{
-		appendStringInfoString(&colnames, "],\n");
+		appendStringInfoString(&colnames, "],");
 		if (data->include_types)
-			appendStringInfoString(&coltypes, "],\n");
-		appendStringInfoString(&colvalues, "]\n");
-		appendStringInfoString(&colvalues, "\t\t\t}\n");
+			appendStringInfoString(&coltypes, "],");
+		appendStringInfoString(&colvalues, "]");
+		appendStringInfoString(&colvalues, "}");
 	}
 	else
 	{
-		appendStringInfoString(&colnames, "],\n");
+		appendStringInfoString(&colnames, "],");
 		if (data->include_types)
-			appendStringInfoString(&coltypes, "],\n");
+			appendStringInfoString(&coltypes, "],");
 		if (hasreplident)
-			appendStringInfoString(&colvalues, "],\n");
+			appendStringInfoString(&colvalues, "],");
 		else
-			appendStringInfoString(&colvalues, "]\n");
+			appendStringInfoString(&colvalues, "]");
 	}
 
 	/* Print data */
@@ -547,8 +543,6 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 
 	/* Avoid leaking memory by using and resetting our own context */
 	old = MemoryContextSwitchTo(data->context);
-
-	OutputPluginPrepareWrite(ctx, true);
 
 	/* Make sure rd_replidindex is set */
 	RelationGetIndexList(relation);
@@ -610,21 +604,21 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 
 	/* Change starts */
 	if (data->nr_changes > 1)
-		appendStringInfoString(ctx->out, "\t\t,{\n");
+		appendStringInfoString(ctx->out, ",{");
 	else
-		appendStringInfoString(ctx->out, "\t\t{\n");
+		appendStringInfoString(ctx->out, "{");
 
 	/* Print change kind */
 	switch (change->action)
 	{
 		case REORDER_BUFFER_CHANGE_INSERT:
-			appendStringInfoString(ctx->out, "\t\t\t\"kind\": \"insert\",\n");
+			appendStringInfoString(ctx->out, "\"kind\":\"insert\",");
 			break;
 		case REORDER_BUFFER_CHANGE_UPDATE:
-			appendStringInfoString(ctx->out, "\t\t\t\"kind\": \"update\",\n");
+			appendStringInfoString(ctx->out, "\"kind\":\"update\",");
 			break;
 		case REORDER_BUFFER_CHANGE_DELETE:
-			appendStringInfoString(ctx->out, "\t\t\t\"kind\": \"delete\",\n");
+			appendStringInfoString(ctx->out, "\"kind\":\"delete\",");
 			break;
 		default:
 			Assert(false);
@@ -632,8 +626,8 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 
 	/* Print table name (possibly) qualified */
 	if (data->include_schemas)
-		appendStringInfo(ctx->out, "\t\t\t\"schema\": \"%s\",\n", get_namespace_name(class_form->relnamespace));
-	appendStringInfo(ctx->out, "\t\t\t\"table\": \"%s\",\n", NameStr(class_form->relname));
+		appendStringInfo(ctx->out, "\"schema\":\"%s\",", get_namespace_name(class_form->relnamespace));
+	appendStringInfo(ctx->out, "\"table\":\"%s\",", NameStr(class_form->relname));
 
 	switch (change->action)
 	{
@@ -699,10 +693,8 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 			Assert(false);
 	}
 
-	appendStringInfoString(ctx->out, "\t\t}");
+	appendStringInfoString(ctx->out, "}");
 
 	MemoryContextSwitchTo(old);
 	MemoryContextReset(data->context);
-
-	OutputPluginWrite(ctx, true);
 }
