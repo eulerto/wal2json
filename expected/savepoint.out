@@ -24,73 +24,13 @@ RELEASE SAVEPOINT sp1;
 INSERT INTO xpto (b) VALUES('francisco');
 END;
 SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'include-xids', '0');
-                           data                           
-----------------------------------------------------------
- {                                                       +
-         "change": [
-                 {                                       +
-                         "kind": "insert",               +
-                         "schema": "public",             +
-                         "table": "xpto",                +
-                         "columnnames": ["a", "b"],      +
-                         "columntypes": ["int4", "text"],+
-                         "columnvalues": [1, "john"]     +
-                 }
-         ]                                               +
- }
- {                                                       +
-         "change": [
-                 {                                       +
-                         "kind": "insert",               +
-                         "schema": "public",             +
-                         "table": "xpto",                +
-                         "columnnames": ["a", "b"],      +
-                         "columntypes": ["int4", "text"],+
-                         "columnvalues": [2, "smith"]    +
-                 }
-         ]                                               +
- }
- {                                                       +
-         "change": [
-                 {                                       +
-                         "kind": "insert",               +
-                         "schema": "public",             +
-                         "table": "xpto",                +
-                         "columnnames": ["a", "b"],      +
-                         "columntypes": ["int4", "text"],+
-                         "columnvalues": [3, "robert"]   +
-                 }
-         ]                                               +
- }
- {                                                       +
-         "change": [
-                 {                                       +
-                         "kind": "insert",               +
-                         "schema": "public",             +
-                         "table": "xpto",                +
-                         "columnnames": ["a", "b"],      +
-                         "columntypes": ["int4", "text"],+
-                         "columnvalues": [4, "marie"]    +
-                 }
-                 ,{                                      +
-                         "kind": "insert",               +
-                         "schema": "public",             +
-                         "table": "xpto",                +
-                         "columnnames": ["a", "b"],      +
-                         "columntypes": ["int4", "text"],+
-                         "columnvalues": [5, "ernesto"]  +
-                 }
-                 ,{                                      +
-                         "kind": "insert",               +
-                         "schema": "public",             +
-                         "table": "xpto",                +
-                         "columnnames": ["a", "b"],      +
-                         "columntypes": ["int4", "text"],+
-                         "columnvalues": [8, "francisco"]+
-                 }
-         ]                                               +
- }
-(14 rows)
+                                                                                                                                                                                                              data                                                                                                                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"change":[{"kind":"insert","schema":"public","table":"xpto","columnnames":["a","b"],"columntypes":["int4","text"],"columnvalues":[1,"john"]}]}
+ {"change":[{"kind":"insert","schema":"public","table":"xpto","columnnames":["a","b"],"columntypes":["int4","text"],"columnvalues":[2,"smith"]}]}
+ {"change":[{"kind":"insert","schema":"public","table":"xpto","columnnames":["a","b"],"columntypes":["int4","text"],"columnvalues":[3,"robert"]}]}
+ {"change":[{"kind":"insert","schema":"public","table":"xpto","columnnames":["a","b"],"columntypes":["int4","text"],"columnvalues":[4,"marie"]},{"kind":"insert","schema":"public","table":"xpto","columnnames":["a","b"],"columntypes":["int4","text"],"columnvalues":[5,"ernesto"]},{"kind":"insert","schema":"public","table":"xpto","columnnames":["a","b"],"columntypes":["int4","text"],"columnvalues":[8,"francisco"]}]}
+(4 rows)
 
 SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
  ?column? 

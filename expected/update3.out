@@ -81,84 +81,18 @@ ALTER TABLE table_with_unique REPLICA IDENTITY FULL;
 UPDATE table_with_unique SET f = -f WHERE b = 1;
 ALTER TABLE table_with_unique REPLICA IDENTITY DEFAULT;
 SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'include-xids', '0');
-                                                                                                               data                                                                                                               
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {                                                                                                                                                                                                                               +
-         "change": [
-         ]                                                                                                                                                                                                                       +
- }
- {                                                                                                                                                                                                                               +
-         "change": [
-                 {                                                                                                                                                                                                               +
-                         "kind": "update",                                                                                                                                                                                       +
-                         "schema": "public",                                                                                                                                                                                     +
-                         "table": "table_with_pk",                                                                                                                                                                               +
-                         "columnnames": ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p"],                                                                                                        +
-                         "columntypes": ["int2", "int2", "int4", "int8", "numeric", "float4", "float8", "bpchar", "varchar", "text", "varbit", "timestamp", "date", "bool", "json", "tsvector"],                                 +
-                         "columnvalues": [1, 1, 2, 3, 3.540, -876.563, 1.23, "teste     ", "testando", "um texto longo", "001110010101010", "Sat Nov 02 17:30:52 2013", "02-04-2013", true, "{ \"a\": 123 }", "'Old' 'Parr'"],   +
-                         "oldkeys": {                                                                                                                                                                                            +
-                                 "keynames": ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p"],                                                                                                   +
-                                 "keytypes": ["int2", "int2", "int4", "int8", "numeric", "float4", "float8", "bpchar", "varchar", "text", "varbit", "timestamp", "date", "bool", "json", "tsvector"],                            +
-                                 "keyvalues": [1, 1, 2, 3, 3.540, 876.563, 1.23, "teste     ", "testando", "um texto longo", "001110010101010", "Sat Nov 02 17:30:52 2013", "02-04-2013", true, "{ \"a\": 123 }", "'Old' 'Parr'"]+
-                         }                                                                                                                                                                                                       +
-                 }
-         ]                                                                                                                                                                                                                       +
- }
- {                                                                                                                                                                                                                               +
-         "change": [
-         ]                                                                                                                                                                                                                       +
- }
- {                                                                                                                                                                                                                               +
-         "change": [
-         ]                                                                                                                                                                                                                       +
- }
- {                                                                                                                                                                                                                               +
-         "change": [
-                 {                                                                                                                                                                                                               +
-                         "kind": "update",                                                                                                                                                                                       +
-                         "schema": "public",                                                                                                                                                                                     +
-                         "table": "table_without_pk",                                                                                                                                                                            +
-                         "columnnames": ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p"],                                                                                                        +
-                         "columntypes": ["int2", "int2", "int4", "int8", "numeric", "float4", "float8", "bpchar", "varchar", "text", "varbit", "timestamp", "date", "bool", "json", "tsvector"],                                 +
-                         "columnvalues": [1, 1, 2, 3, 3.540, -876.563, 1.23, "teste     ", "testando", "um texto longo", "001110010101010", "Sat Nov 02 17:30:52 2013", "02-04-2013", true, "{ \"a\": 123 }", "'Old' 'Parr'"],   +
-                         "oldkeys": {                                                                                                                                                                                            +
-                                 "keynames": ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p"],                                                                                                   +
-                                 "keytypes": ["int2", "int2", "int4", "int8", "numeric", "float4", "float8", "bpchar", "varchar", "text", "varbit", "timestamp", "date", "bool", "json", "tsvector"],                            +
-                                 "keyvalues": [1, 1, 2, 3, 3.540, 876.563, 1.23, "teste     ", "testando", "um texto longo", "001110010101010", "Sat Nov 02 17:30:52 2013", "02-04-2013", true, "{ \"a\": 123 }", "'Old' 'Parr'"]+
-                         }                                                                                                                                                                                                       +
-                 }
-         ]                                                                                                                                                                                                                       +
- }
- {                                                                                                                                                                                                                               +
-         "change": [
-         ]                                                                                                                                                                                                                       +
- }
- {                                                                                                                                                                                                                               +
-         "change": [
-         ]                                                                                                                                                                                                                       +
- }
- {                                                                                                                                                                                                                               +
-         "change": [
-                 {                                                                                                                                                                                                               +
-                         "kind": "update",                                                                                                                                                                                       +
-                         "schema": "public",                                                                                                                                                                                     +
-                         "table": "table_with_unique",                                                                                                                                                                           +
-                         "columnnames": ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p"],                                                                                                        +
-                         "columntypes": ["int2", "int2", "int4", "int8", "numeric", "float4", "float8", "bpchar", "varchar", "text", "varbit", "timestamp", "date", "bool", "json", "tsvector"],                                 +
-                         "columnvalues": [1, 1, 2, 3, 3.540, -876.563, 1.23, "teste     ", "testando", "um texto longo", "001110010101010", "Sat Nov 02 17:30:52 2013", "02-04-2013", true, "{ \"a\": 123 }", "'Old' 'Parr'"],   +
-                         "oldkeys": {                                                                                                                                                                                            +
-                                 "keynames": ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p"],                                                                                                   +
-                                 "keytypes": ["int2", "int2", "int4", "int8", "numeric", "float4", "float8", "bpchar", "varchar", "text", "varbit", "timestamp", "date", "bool", "json", "tsvector"],                            +
-                                 "keyvalues": [1, 1, 2, 3, 3.540, 876.563, 1.23, "teste     ", "testando", "um texto longo", "001110010101010", "Sat Nov 02 17:30:52 2013", "02-04-2013", true, "{ \"a\": 123 }", "'Old' 'Parr'"]+
-                         }                                                                                                                                                                                                       +
-                 }
-         ]                                                                                                                                                                                                                       +
- }
- {                                                                                                                                                                                                                               +
-         "change": [
-         ]                                                                                                                                                                                                                       +
- }
-(21 rows)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                  data                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"change":[]}
+ {"change":[{"kind":"update","schema":"public","table":"table_with_pk","columnnames":["a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p"],"columntypes":["int2","int2","int4","int8","numeric","float4","float8","bpchar","varchar","text","varbit","timestamp","date","bool","json","tsvector"],"columnvalues":[1,1,2,3,3.540,-876.563,1.23,"teste     ","testando","um texto longo","001110010101010","Sat Nov 02 17:30:52 2013","02-04-2013",true,"{ \"a\": 123 }","'Old' 'Parr'"],"oldkeys":{"keynames":["a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p"],"keytypes":["int2","int2","int4","int8","numeric","float4","float8","bpchar","varchar","text","varbit","timestamp","date","bool","json","tsvector"],"keyvalues":[1,1,2,3,3.540,876.563,1.23,"teste     ","testando","um texto longo","001110010101010","Sat Nov 02 17:30:52 2013","02-04-2013",true,"{ \"a\": 123 }","'Old' 'Parr'"]}}]}
+ {"change":[]}
+ {"change":[]}
+ {"change":[{"kind":"update","schema":"public","table":"table_without_pk","columnnames":["a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p"],"columntypes":["int2","int2","int4","int8","numeric","float4","float8","bpchar","varchar","text","varbit","timestamp","date","bool","json","tsvector"],"columnvalues":[1,1,2,3,3.540,-876.563,1.23,"teste     ","testando","um texto longo","001110010101010","Sat Nov 02 17:30:52 2013","02-04-2013",true,"{ \"a\": 123 }","'Old' 'Parr'"],"oldkeys":{"keynames":["a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p"],"keytypes":["int2","int2","int4","int8","numeric","float4","float8","bpchar","varchar","text","varbit","timestamp","date","bool","json","tsvector"],"keyvalues":[1,1,2,3,3.540,876.563,1.23,"teste     ","testando","um texto longo","001110010101010","Sat Nov 02 17:30:52 2013","02-04-2013",true,"{ \"a\": 123 }","'Old' 'Parr'"]}}]}
+ {"change":[]}
+ {"change":[]}
+ {"change":[{"kind":"update","schema":"public","table":"table_with_unique","columnnames":["a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p"],"columntypes":["int2","int2","int4","int8","numeric","float4","float8","bpchar","varchar","text","varbit","timestamp","date","bool","json","tsvector"],"columnvalues":[1,1,2,3,3.540,-876.563,1.23,"teste     ","testando","um texto longo","001110010101010","Sat Nov 02 17:30:52 2013","02-04-2013",true,"{ \"a\": 123 }","'Old' 'Parr'"],"oldkeys":{"keynames":["a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p"],"keytypes":["int2","int2","int4","int8","numeric","float4","float8","bpchar","varchar","text","varbit","timestamp","date","bool","json","tsvector"],"keyvalues":[1,1,2,3,3.540,876.563,1.23,"teste     ","testando","um texto longo","001110010101010","Sat Nov 02 17:30:52 2013","02-04-2013",true,"{ \"a\": 123 }","'Old' 'Parr'"]}}]}
+ {"change":[]}
+(9 rows)
 
 SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
  ?column? 
