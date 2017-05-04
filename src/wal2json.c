@@ -10,7 +10,10 @@
  *
  *-------------------------------------------------------------------------
  */
+
 #include "postgres.h"
+
+#include "wal2json.h"
 
 #include "access/sysattr.h"
 
@@ -37,26 +40,6 @@ PG_MODULE_MAGIC;
 extern void		_PG_init(void);
 extern void		_PG_output_plugin_init(OutputPluginCallbacks *cb);
 
-typedef struct
-{
-	MemoryContext context;
-	bool		include_xids;		/* include transaction ids */
-	bool		include_timestamp;	/* include transaction timestamp */
-	bool		include_schemas;	/* qualify tables */
-	bool		include_types;		/* include data types */
-
-	bool		pretty_print;		/* pretty-print JSON? */
-	bool		write_in_chunks;	/* write in chunks? */
-
-	/*
-	 * LSN pointing to the end of commit record + 1 (txn->end_lsn)
-	 * It is useful for tools that wants a position to restart from.
-	 */
-	bool		include_lsn;		/* include LSNs */
-
-	uint64		nr_changes;			/* # of passes in pg_decode_change() */
-									/* FIXME replace with txn->nentries */
-} JsonDecodingData;
 
 /* These must be available to pg_dlsym() */
 static void pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is_init);
@@ -107,6 +90,7 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 	data->pretty_print = false;
 	data->write_in_chunks = true;
 	data->include_lsn = false;
+	data->commands = NULL;
 
 	data->nr_changes = 0;
 
@@ -211,6 +195,10 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
 							 strVal(elem->arg), elem->defname)));
+		}
+		else if (strcmp(elem->defname, "include-table") == 0)
+		{
+			includes_parse_table(elem, &data->commands);
 		}
 		else
 			ereport(ERROR,
@@ -656,6 +644,10 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	data = ctx->output_plugin_private;
 	class_form = RelationGetForm(relation);
 	tupdesc = RelationGetDescr(relation);
+
+	/* check if we have to emit this table */
+	if (!includes_should_emit(data->commands, class_form))
+		return;
 
 	/* Avoid leaking memory by using and resetting our own context */
 	old = MemoryContextSwitchTo(data->context);

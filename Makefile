@@ -1,9 +1,9 @@
 MODULE_big = wal2json
 
-OBJS = src/wal2json.o
+OBJS = src/wal2json.o src/includes.o
 
 REGRESS = cmdline insert1 update1 update2 update3 update4 delete1 delete2 \
-		  delete3 delete4 savepoint specialvalue toast bytea
+		  delete3 delete4 include savepoint specialvalue toast bytea
 
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
