@@ -53,6 +53,7 @@ typedef struct
 	 * It is useful for tools that wants a position to restart from.
 	 */
 	bool		include_lsn;		/* include LSNs */
+	bool		skip_empty_xacts;   /* don't emit anything on empty xacts */
 
 	uint64		nr_changes;			/* # of passes in pg_decode_change() */
 									/* FIXME replace with txn->nentries */
@@ -107,6 +108,7 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 	data->pretty_print = false;
 	data->write_in_chunks = true;
 	data->include_lsn = false;
+	data->skip_empty_xacts = false;
 
 	data->nr_changes = 0;
 
@@ -212,6 +214,17 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
 							 strVal(elem->arg), elem->defname)));
 		}
+		else if (strcmp(elem->defname, "skip-empty-xacts") == 0)
+		{
+
+			if (elem->arg == NULL)
+				data->skip_empty_xacts = true;
+			else if (!parse_bool(strVal(elem->arg), &data->skip_empty_xacts))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
+						 strVal(elem->arg), elem->defname)));
+		}
 		else
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -231,7 +244,11 @@ pg_decode_shutdown(LogicalDecodingContext *ctx)
 	MemoryContextDelete(data->context);
 }
 
+
 /* BEGIN callback */
+static void output_begin(LogicalDecodingContext *ctx, JsonDecodingData *data,
+		ReorderBufferTXN *txn, bool last_write);
+
 void
 pg_decode_begin_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 {
@@ -239,6 +256,14 @@ pg_decode_begin_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 
 	data->nr_changes = 0;
 
+	if (!data->skip_empty_xacts)
+		output_begin(ctx, data, txn, true);
+}
+
+static void
+output_begin(LogicalDecodingContext *ctx, JsonDecodingData *data,
+		ReorderBufferTXN *txn, bool last_write)
+{
 	/* Transaction starts */
 	OutputPluginPrepareWrite(ctx, true);
 
@@ -281,7 +306,7 @@ pg_decode_begin_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 		appendStringInfoString(ctx->out, "\"change\":[");
 
 	if (data->write_in_chunks)
-		OutputPluginWrite(ctx, true);
+		OutputPluginWrite(ctx, last_write);
 }
 
 /* COMMIT callback */
@@ -297,6 +322,9 @@ pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 		elog(DEBUG1, "txn has catalog changes: no");
 	elog(DEBUG1, "my change counter: %lu ; # of changes: %lu ; # of changes in memory: %lu", data->nr_changes, txn->nentries, txn->nentries_mem);
 	elog(DEBUG1, "# of subxacts: %d", txn->nsubtxns);
+
+	if (data->skip_empty_xacts && data->nr_changes == 0)
+		return;
 
 	/* Transaction ends */
 	if (data->write_in_chunks)
@@ -660,9 +688,6 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	/* Avoid leaking memory by using and resetting our own context */
 	old = MemoryContextSwitchTo(data->context);
 
-	if (data->write_in_chunks)
-		OutputPluginPrepareWrite(ctx, true);
-
 	/* Make sure rd_replidindex is set */
 	RelationGetIndexList(relation);
 
@@ -717,6 +742,12 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 		default:
 			Assert(false);
 	}
+
+	if (data->skip_empty_xacts && data->nr_changes == 0)
+		output_begin(ctx, data, txn, false);
+
+	if (data->write_in_chunks)
+		OutputPluginPrepareWrite(ctx, true);
 
 	/* Change counter */
 	data->nr_changes++;
