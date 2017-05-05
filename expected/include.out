@@ -17,6 +17,7 @@ SELECT 'init' FROM pg_create_logical_replication_slot('regression_slot', 'wal2js
  init
 (1 row)
 
+-- Include commands in single tables
 insert into t1 values (1);
 insert into t2 values (2);
 insert into t3 values (3);
@@ -131,6 +132,7 @@ SELECT data FROM pg_logical_slot_get_changes(
  }
 (24 rows)
 
+-- Include commands on a pattern of tables
 insert into t1 values (1);
 insert into t2 values (2);
 insert into s1 values (3);
@@ -207,6 +209,7 @@ SELECT data FROM pg_logical_slot_get_changes(
  }
 (8 rows)
 
+-- Exclude a table after inclusion
 insert into t1 values (7);
 insert into t2 values (8);
 insert into t3 values (9);
@@ -246,6 +249,133 @@ SELECT data FROM pg_logical_slot_get_changes(
  }
  {                                               +
          "change": [
+         ]                                       +
+ }
+(10 rows)
+
+-- Exclude a single table
+insert into t1 values (11);
+insert into t2 values (12);
+insert into t3 values (13);
+SELECT data FROM pg_logical_slot_get_changes(
+	'regression_slot', NULL, NULL, 'include-xids', '0', 'pretty-print', '1',
+	'exclude-table', 't2');
+                       data                       
+--------------------------------------------------
+ {                                               +
+         "change": [
+                 {                               +
+                         "kind": "insert",       +
+                         "schema": "public",     +
+                         "table": "t1",          +
+                         "columnnames": ["id"],  +
+                         "columntypes": ["int4"],+
+                         "columnvalues": [11]    +
+                 }
+         ]                                       +
+ }
+ {                                               +
+         "change": [
+         ]                                       +
+ }
+ {                                               +
+         "change": [
+                 {                               +
+                         "kind": "insert",       +
+                         "schema": "public",     +
+                         "table": "t3",          +
+                         "columnnames": ["id"],  +
+                         "columntypes": ["int4"],+
+                         "columnvalues": [13]    +
+                 }
+         ]                                       +
+ }
+(8 rows)
+
+-- Exclude a pattern
+insert into t1 values (14);
+insert into t2 values (15);
+insert into t3 values (16);
+insert into s1 values (17);
+SELECT data FROM pg_logical_slot_get_changes(
+	'regression_slot', NULL, NULL, 'include-xids', '0', 'pretty-print', '1',
+	'exclude-table', '~.1');
+                       data                       
+--------------------------------------------------
+ {                                               +
+         "change": [
+         ]                                       +
+ }
+ {                                               +
+         "change": [
+                 {                               +
+                         "kind": "insert",       +
+                         "schema": "public",     +
+                         "table": "t2",          +
+                         "columnnames": ["id"],  +
+                         "columntypes": ["int4"],+
+                         "columnvalues": [15]    +
+                 }
+         ]                                       +
+ }
+ {                                               +
+         "change": [
+                 {                               +
+                         "kind": "insert",       +
+                         "schema": "public",     +
+                         "table": "t3",          +
+                         "columnnames": ["id"],  +
+                         "columntypes": ["int4"],+
+                         "columnvalues": [16]    +
+                 }
+         ]                                       +
+ }
+ {                                               +
+         "change": [
+         ]                                       +
+ }
+(10 rows)
+
+-- Include after exclusion
+insert into t1 values (18);
+insert into t2 values (19);
+insert into t3 values (20);
+insert into s1 values (21);
+SELECT data FROM pg_logical_slot_get_changes(
+	'regression_slot', NULL, NULL, 'include-xids', '0', 'pretty-print', '1',
+	'exclude-table', '~t', 'include-table', '~.2');
+                       data                       
+--------------------------------------------------
+ {                                               +
+         "change": [
+         ]                                       +
+ }
+ {                                               +
+         "change": [
+                 {                               +
+                         "kind": "insert",       +
+                         "schema": "public",     +
+                         "table": "t2",          +
+                         "columnnames": ["id"],  +
+                         "columntypes": ["int4"],+
+                         "columnvalues": [19]    +
+                 }
+         ]                                       +
+ }
+ {                                               +
+         "change": [
+         ]                                       +
+ }
+ {                                               +
+         "change": [
+                 {                               +
+                         "kind": "insert",       +
+                         "schema": "public",     +
+                         "table": "s1",          +
+                         "columnnames": ["id"],  +
+                         "columntypes": ["int4"],+
+                         "columnvalues": [21]    +
+                 }
          ]                                       +
  }
 (10 rows)

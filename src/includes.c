@@ -9,13 +9,22 @@
 
 #define cmd_cont(n) dlist_container(InclusionCommand, node, n)
 static void cmds_init(InclusionCommands **cmds);
+static bool cmds_is_empty(InclusionCommands *cmds);
 static void cmds_push(InclusionCommands *cmds, InclusionCommand *cmd);
 static InclusionCommand *cmds_tail(InclusionCommands *cmds);
+static InclusionCommand *cmd_at_tail(InclusionCommands *cmds, CommandType type);
 
 static void re_compile(regex_t *re, const char *p);
 static bool re_match(regex_t *re, const char *s);
 
 
+/* parse a parameter representing one or more tables to include
+ *
+ * if the value starts with ~ the rest of the command is interpreted as a
+ * regexp pattern.
+ *
+ * The result is pushed on the *cmds* list (which is allocated if needed).
+ */
 void
 inc_parse_include_table(DefElem *elem, InclusionCommands **cmds)
 {
@@ -32,26 +41,33 @@ inc_parse_include_table(DefElem *elem, InclusionCommands **cmds)
 
 	cmds_init(cmds);
 
-	cmd = palloc0(sizeof(InclusionCommand));
 	val = strVal(elem->arg);
 
 	if (val[0] == '~') {
-		cmd->type = CMD_INCLUDE_TABLE_PATTERN;
+		cmd = cmd_at_tail(*cmds, CMD_INCLUDE_TABLE_PATTERN);
 		re_compile(&cmd->table_re, val + 1);
 	}
 	else {
-		cmd->type = CMD_INCLUDE_TABLE;
+		cmd = cmd_at_tail(*cmds, CMD_INCLUDE_TABLE);
 		cmd->table_name = pstrdup(val);
 	}
-
-	cmds_push(*cmds, cmd);
 }
 
 
+/* parse a parameter representing one or more tables to exclude
+ *
+ * if the value starts with ~ the rest of the command is interpreted as a
+ * regexp pattern.
+ */
 void
 inc_parse_exclude_table(DefElem *elem, InclusionCommands **cmds)
 {
 	InclusionCommand *cmd;
+
+	/* if the first command is an exclude, start including everything */
+	cmds_init(cmds);
+	if (cmds_is_empty(*cmds))
+		cmd_at_tail(*cmds, CMD_INCLUDE_ALL);
 
 	inc_parse_include_table(elem, cmds);
 	cmd = cmds_tail(*cmds);
@@ -86,6 +102,10 @@ inc_should_emit(InclusionCommands *cmds, Form_pg_class class_form)
 		InclusionCommand *cmd = cmd_cont(iter.cur);
 		switch (cmd->type)
 		{
+			case CMD_INCLUDE_ALL:
+				rv = true;
+				break;
+
 			case CMD_INCLUDE_TABLE:
 				if (strcmp(cmd->table_name, NameStr(class_form->relname)) == 0)
 					rv = true;
@@ -123,6 +143,13 @@ cmds_init(InclusionCommands **cmds)
 }
 
 
+static bool
+cmds_is_empty(InclusionCommands *cmds)
+{
+	return dlist_is_empty(&cmds->head);
+}
+
+
 static void
 cmds_push(InclusionCommands *cmds, InclusionCommand *cmd)
 {
@@ -135,6 +162,16 @@ cmds_tail(InclusionCommands *cmds)
 {
 	dlist_node *n = dlist_tail_node(&cmds->head);
 	return cmd_cont(n);
+}
+
+
+static InclusionCommand *
+cmd_at_tail(InclusionCommands *cmds, CommandType type)
+{
+	InclusionCommand *cmd = palloc0(sizeof(InclusionCommand));
+	cmd->type = type;
+	cmds_push(cmds, cmd);
+	return cmd;
 }
 
 
