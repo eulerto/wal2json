@@ -21,6 +21,7 @@ typedef struct
 	 * It is useful for tools that wants a position to restart from.
 	 */
 	bool		include_lsn;		/* include LSNs */
+	bool		skip_empty_xacts;   /* don't emit anything on empty xacts */
 
 	uint64		nr_changes;			/* # of passes in pg_decode_change() */
 									/* FIXME replace with txn->nentries */
