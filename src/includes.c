@@ -7,15 +7,17 @@
 
 /* forward declarations */
 
+#define cmd_cont(n) dlist_container(InclusionCommand, node, n)
 static void cmds_init(InclusionCommands **cmds);
 static void cmds_push(InclusionCommands *cmds, InclusionCommand *cmd);
+static InclusionCommand *cmds_tail(InclusionCommands *cmds);
 
 static void re_compile(regex_t *re, const char *p);
 static bool re_match(regex_t *re, const char *s);
 
 
 void
-inc_parse_table(DefElem *elem, InclusionCommands **cmds)
+inc_parse_include_table(DefElem *elem, InclusionCommands **cmds)
 {
 	InclusionCommand *cmd;
 	char *val;
@@ -46,6 +48,28 @@ inc_parse_table(DefElem *elem, InclusionCommands **cmds)
 }
 
 
+void
+inc_parse_exclude_table(DefElem *elem, InclusionCommands **cmds)
+{
+	InclusionCommand *cmd;
+
+	inc_parse_include_table(elem, cmds);
+	cmd = cmds_tail(*cmds);
+	switch (cmd->type)
+	{
+		case CMD_INCLUDE_TABLE:
+			cmd->type = CMD_EXCLUDE_TABLE;
+			break;
+
+		case CMD_INCLUDE_TABLE_PATTERN:
+			cmd->type = CMD_EXCLUDE_TABLE_PATTERN;
+			break;
+
+		default:
+			Assert(false);
+	}
+}
+
 /* Return True if a table should be included in the output */
 bool
 inc_should_emit(InclusionCommands *cmds, Form_pg_class class_form)
@@ -59,8 +83,7 @@ inc_should_emit(InclusionCommands *cmds, Form_pg_class class_form)
 
 	dlist_foreach(iter, &(cmds)->head)
 	{
-		InclusionCommand *cmd = dlist_container(
-			InclusionCommand, node, iter.cur);
+		InclusionCommand *cmd = cmd_cont(iter.cur);
 		switch (cmd->type)
 		{
 			case CMD_INCLUDE_TABLE:
@@ -68,9 +91,19 @@ inc_should_emit(InclusionCommands *cmds, Form_pg_class class_form)
 					rv = true;
 				break;
 
+			case CMD_EXCLUDE_TABLE:
+				if (strcmp(cmd->table_name, NameStr(class_form->relname)) == 0)
+					rv = false;
+				break;
+
 			case CMD_INCLUDE_TABLE_PATTERN:
 				if (re_match(&cmd->table_re, NameStr(class_form->relname)))
 					rv = true;
+				break;
+
+			case CMD_EXCLUDE_TABLE_PATTERN:
+				if (re_match(&cmd->table_re, NameStr(class_form->relname)))
+					rv = false;
 				break;
 
 			default:
@@ -94,6 +127,14 @@ static void
 cmds_push(InclusionCommands *cmds, InclusionCommand *cmd)
 {
 	dlist_push_tail(&cmds->head, &cmd->node);
+}
+
+
+static InclusionCommand *
+cmds_tail(InclusionCommands *cmds)
+{
+	dlist_node *n = dlist_tail_node(&cmds->head);
+	return cmd_cont(n);
 }
 
 

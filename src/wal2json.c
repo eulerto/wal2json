@@ -198,7 +198,11 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 		}
 		else if (strcmp(elem->defname, "include-table") == 0)
 		{
-			inc_parse_table(elem, &data->commands);
+			inc_parse_include_table(elem, &data->commands);
+		}
+		else if (strcmp(elem->defname, "exclude-table") == 0)
+		{
+			inc_parse_exclude_table(elem, &data->commands);
 		}
 		else
 			ereport(ERROR,

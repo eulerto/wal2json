@@ -24,21 +24,37 @@ delete from t1 where id = 10;
 delete from t2 where id = 20;
 delete from t3 where id = 30;
 
-SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'include-xids', '0', 'pretty-print', '1', 'include-table', 't1', 'include-table', 't3');
+SELECT data FROM pg_logical_slot_get_changes(
+	'regression_slot', NULL, NULL, 'include-xids', '0', 'pretty-print', '1',
+	'include-table', 't1', 'include-table', 't3');
 
 
 insert into t1 values (1);
 insert into t2 values (2);
 insert into s1 values (3);
 
-SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'include-xids', '0', 'pretty-print', '1', 'include-table', '~t');
+SELECT data FROM pg_logical_slot_get_changes(
+	'regression_slot', NULL, NULL, 'include-xids', '0', 'pretty-print', '1',
+	'include-table', '~t');
 
 
 insert into t1 values (4);
 insert into t2 values (5);
 insert into s1 values (6);
 
-SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'include-xids', '0', 'pretty-print', '1', 'include-table', '~^.1$');
+SELECT data FROM pg_logical_slot_get_changes(
+	'regression_slot', NULL, NULL, 'include-xids', '0', 'pretty-print', '1',
+	'include-table', '~^.1$');
+
+
+insert into t1 values (7);
+insert into t2 values (8);
+insert into t3 values (9);
+insert into s1 values (10);
+
+SELECT data FROM pg_logical_slot_get_changes(
+	'regression_slot', NULL, NULL, 'include-xids', '0', 'pretty-print', '1',
+	'include-table', '~^t', 'exclude-table', 't2');
 
 
 SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
