@@ -135,6 +135,7 @@ inc_should_emit(InclusionCommands *cmds, Form_pg_class class_form)
 }
 
 
+/* Allocate a list of commands */
 static void
 cmds_init(InclusionCommands **cmds)
 {
@@ -143,6 +144,7 @@ cmds_init(InclusionCommands **cmds)
 }
 
 
+/* Return True if a list of commands is empty */
 static bool
 cmds_is_empty(InclusionCommands *cmds)
 {
@@ -150,6 +152,7 @@ cmds_is_empty(InclusionCommands *cmds)
 }
 
 
+/* Add a command at the end of a list of commands */
 static void
 cmds_push(InclusionCommands *cmds, InclusionCommand *cmd)
 {
@@ -157,6 +160,7 @@ cmds_push(InclusionCommands *cmds, InclusionCommand *cmd)
 }
 
 
+/* Return the last command of a list */
 static InclusionCommand *
 cmds_tail(InclusionCommands *cmds)
 {
@@ -165,6 +169,7 @@ cmds_tail(InclusionCommands *cmds)
 }
 
 
+/* Allocate a new command and add it at the end of a list */
 static InclusionCommand *
 cmd_at_tail(InclusionCommands *cmds, CommandType type)
 {
@@ -175,6 +180,7 @@ cmd_at_tail(InclusionCommands *cmds, CommandType type)
 }
 
 
+/* Compile a regular expression */
 static void
 re_compile(regex_t *re, const char *p)
 {
@@ -198,6 +204,8 @@ re_compile(regex_t *re, const char *p)
 	pfree(wstr);
 }
 
+
+/* Return true if a regular expression matches a string */
 static bool
 re_match(regex_t *re, const char *s)
 {
