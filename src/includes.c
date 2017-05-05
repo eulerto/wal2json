@@ -1,12 +1,25 @@
-#include "postgres.h"
-
 #include "includes.h"
 
 #include "wal2json.h"
 
+#include "catalog/pg_collation.h"
+
+
+/* forward declarations */
+
+static void cmds_init(InclusionCommands **cmds);
+static void cmds_push(InclusionCommands *cmds, InclusionCommand *cmd);
+
+static void re_compile(regex_t *re, const char *p);
+static bool re_match(regex_t *re, const char *s);
+
+
 void
-includes_parse_table(DefElem *elem, InclusionCommands **cmds)
+inc_parse_table(DefElem *elem, InclusionCommands **cmds)
 {
+	InclusionCommand *cmd;
+	char *val;
+
 	if (elem->arg == NULL)
 	{
 		ereport(ERROR,
@@ -14,21 +27,31 @@ includes_parse_table(DefElem *elem, InclusionCommands **cmds)
 				 errmsg("parameter \"%s\" requires a value",
 					 elem->defname)));
 	}
-	else {
-		InclusionCommand *cmd = palloc0(sizeof(InclusionCommand));
-		cmd->type = CMD_INCLUDE_TABLE;
-		cmd->table_name = pstrdup(strVal(elem->arg));
-		if (*cmds == NULL)
-			*cmds = palloc0(sizeof(InclusionCommands));
-		dlist_push_tail(&(*cmds)->head, &cmd->node);
+
+	cmds_init(cmds);
+
+	cmd = palloc0(sizeof(InclusionCommand));
+	val = strVal(elem->arg);
+
+	if (val[0] == '~') {
+		cmd->type = CMD_INCLUDE_TABLE_PATTERN;
+		re_compile(&cmd->table_re, val + 1);
 	}
+	else {
+		cmd->type = CMD_INCLUDE_TABLE;
+		cmd->table_name = pstrdup(val);
+	}
+
+	cmds_push(*cmds, cmd);
 }
+
 
 /* Return True if a table should be included in the output */
 bool
-includes_should_emit(InclusionCommands *cmds, Form_pg_class class_form)
+inc_should_emit(InclusionCommands *cmds, Form_pg_class class_form)
 {
 	dlist_iter iter;
+	bool rv = false;
 
 	/* No command: include everything by default */
 	if (cmds == NULL)
@@ -42,12 +65,86 @@ includes_should_emit(InclusionCommands *cmds, Form_pg_class class_form)
 		{
 			case CMD_INCLUDE_TABLE:
 				if (strcmp(cmd->table_name, NameStr(class_form->relname)) == 0)
-					return true;
+					rv = true;
 				break;
+
+			case CMD_INCLUDE_TABLE_PATTERN:
+				if (re_match(&cmd->table_re, NameStr(class_form->relname)))
+					rv = true;
+				break;
+
 			default:
 				Assert(false);
 		}
 	}
 
-	return false;
+	return rv;
+}
+
+
+static void
+cmds_init(InclusionCommands **cmds)
+{
+	if (*cmds == NULL)
+		*cmds = palloc0(sizeof(InclusionCommands));
+}
+
+
+static void
+cmds_push(InclusionCommands *cmds, InclusionCommand *cmd)
+{
+	dlist_push_tail(&cmds->head, &cmd->node);
+}
+
+
+static void
+re_compile(regex_t *re, const char *p)
+{
+	pg_wchar *wstr;
+	int wlen;
+	int r;
+
+	wstr = palloc((strlen(p) + 1) * sizeof(pg_wchar));
+	wlen = pg_mb2wchar(p, wstr);
+
+	r = pg_regcomp(re, wstr, wlen, REG_ADVANCED, C_COLLATION_OID);
+	if (r)
+	{
+		char errstr[100];
+		pg_regerror(r, re, errstr, sizeof(errstr));
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_REGULAR_EXPRESSION),
+				 errmsg("invalid regular expression \"%s\": %s", p, errstr)));
+	}
+
+	pfree(wstr);
+}
+
+static bool
+re_match(regex_t *re, const char *s)
+{
+	pg_wchar *wstr;
+	int wlen;
+	int r;
+
+	wstr = palloc((strlen(s) + 1) * sizeof(pg_wchar));
+	wlen = pg_mb2wchar(s, wstr);
+
+	r = pg_regexec(re, wstr, wlen, 0, NULL, 0, NULL, 0);
+	pfree(wstr);
+	if (r == REG_NOMATCH)
+		return false;
+	if (!r)
+		return true;
+
+	{
+		char errstr[100];
+
+		/* REG_NOMATCH is not an error, everything else is */
+		pg_regerror(r, re, errstr, sizeof(errstr));
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_REGULAR_EXPRESSION),
+				 errmsg("regular expression match for \"%s\" failed: %s",
+						s, errstr)));
+	}
 }

@@ -10,6 +10,7 @@ NOTICE:  table "t3" does not exist, skipping
 CREATE TABLE t1 (id int PRIMARY KEY);
 CREATE TABLE t2 (id int PRIMARY KEY);
 CREATE TABLE t3 (id int PRIMARY KEY);
+CREATE TABLE s1 (id int PRIMARY KEY);
 SELECT 'init' FROM pg_create_logical_replication_slot('regression_slot', 'wal2json');
  ?column? 
 ----------
@@ -127,6 +128,78 @@ SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'inc
          ]                                            +
  }
 (24 rows)
+
+insert into t1 values (1);
+insert into t2 values (2);
+insert into s1 values (3);
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'include-xids', '0', 'pretty-print', '1', 'include-table', '~t');
+                       data                       
+--------------------------------------------------
+ {                                               +
+         "change": [
+                 {                               +
+                         "kind": "insert",       +
+                         "schema": "public",     +
+                         "table": "t1",          +
+                         "columnnames": ["id"],  +
+                         "columntypes": ["int4"],+
+                         "columnvalues": [1]     +
+                 }
+         ]                                       +
+ }
+ {                                               +
+         "change": [
+                 {                               +
+                         "kind": "insert",       +
+                         "schema": "public",     +
+                         "table": "t2",          +
+                         "columnnames": ["id"],  +
+                         "columntypes": ["int4"],+
+                         "columnvalues": [2]     +
+                 }
+         ]                                       +
+ }
+ {                                               +
+         "change": [
+         ]                                       +
+ }
+(8 rows)
+
+insert into t1 values (4);
+insert into t2 values (5);
+insert into s1 values (6);
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'include-xids', '0', 'pretty-print', '1', 'include-table', '~^.1$');
+                       data                       
+--------------------------------------------------
+ {                                               +
+         "change": [
+                 {                               +
+                         "kind": "insert",       +
+                         "schema": "public",     +
+                         "table": "t1",          +
+                         "columnnames": ["id"],  +
+                         "columntypes": ["int4"],+
+                         "columnvalues": [4]     +
+                 }
+         ]                                       +
+ }
+ {                                               +
+         "change": [
+         ]                                       +
+ }
+ {                                               +
+         "change": [
+                 {                               +
+                         "kind": "insert",       +
+                         "schema": "public",     +
+                         "table": "s1",          +
+                         "columnnames": ["id"],  +
+                         "columntypes": ["int4"],+
+                         "columnvalues": [6]     +
+                 }
+         ]                                       +
+ }
+(8 rows)
 
 SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
  ?column? 

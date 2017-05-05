@@ -198,7 +198,7 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 		}
 		else if (strcmp(elem->defname, "include-table") == 0)
 		{
-			includes_parse_table(elem, &data->commands);
+			inc_parse_table(elem, &data->commands);
 		}
 		else
 			ereport(ERROR,
@@ -646,7 +646,7 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	tupdesc = RelationGetDescr(relation);
 
 	/* check if we have to emit this table */
-	if (!includes_should_emit(data->commands, class_form))
+	if (!inc_should_emit(data->commands, class_form))
 		return;
 
 	/* Avoid leaking memory by using and resetting our own context */
