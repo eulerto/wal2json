@@ -87,4 +87,20 @@ DELETE FROM table_with_unique WHERE b = 1;
 ALTER TABLE table_with_unique REPLICA IDENTITY DEFAULT;
 
 SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'include-xids', '0', 'pretty-print', '1');
+
+-- Test skipping empty xacts
+ALTER TABLE table_with_pk REPLICA IDENTITY NOTHING;
+DELETE FROM table_with_pk WHERE b = 1;
+ALTER TABLE table_with_pk REPLICA IDENTITY DEFAULT;
+
+ALTER TABLE table_without_pk REPLICA IDENTITY NOTHING;
+DELETE FROM table_without_pk WHERE b = 1;
+ALTER TABLE table_without_pk REPLICA IDENTITY DEFAULT;
+
+ALTER TABLE table_with_unique REPLICA IDENTITY NOTHING;
+DELETE FROM table_with_unique WHERE b = 1;
+ALTER TABLE table_with_unique REPLICA IDENTITY DEFAULT;
+
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'include-xids', '0', 'pretty-print', '1', 'skip-empty-xacts', '1');
+
 SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
