@@ -47,8 +47,8 @@ insert into t1 values (4);
 insert into t2 values (5);
 insert into s1 values (6);
 
-SELECT data FROM pg_logical_slot_get_changes(
-	'regression_slot', NULL, NULL, 'include-xids', '0', 'pretty-print', '1',
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL,
+	'include-xids', '0', 'pretty-print', '1', 'skip-empty-xacts', '1',
 	'include-table', '~^.1$');
 
 
@@ -59,8 +59,8 @@ insert into t2 values (8);
 insert into t3 values (9);
 insert into s1 values (10);
 
-SELECT data FROM pg_logical_slot_get_changes(
-	'regression_slot', NULL, NULL, 'include-xids', '0', 'pretty-print', '1',
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL,
+	'include-xids', '0', 'pretty-print', '1', 'skip-empty-xacts', '1',
 	'include-table', '~^t', 'exclude-table', 't2');
 
 
@@ -71,8 +71,8 @@ insert into t2 values (12);
 insert into t3 values (13);
 
 
-SELECT data FROM pg_logical_slot_get_changes(
-	'regression_slot', NULL, NULL, 'include-xids', '0', 'pretty-print', '1',
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL,
+	'include-xids', '0', 'pretty-print', '1', 'skip-empty-xacts', '1',
 	'exclude-table', 't2');
 
 
@@ -84,8 +84,8 @@ insert into t3 values (16);
 insert into s1 values (17);
 
 
-SELECT data FROM pg_logical_slot_get_changes(
-	'regression_slot', NULL, NULL, 'include-xids', '0', 'pretty-print', '1',
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL,
+	'include-xids', '0', 'pretty-print', '1', 'skip-empty-xacts', '1',
 	'exclude-table', '~.1');
 
 
@@ -97,8 +97,8 @@ insert into t3 values (20);
 insert into s1 values (21);
 
 
-SELECT data FROM pg_logical_slot_get_changes(
-	'regression_slot', NULL, NULL, 'include-xids', '0', 'pretty-print', '1',
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL,
+	'include-xids', '0', 'pretty-print', '1', 'skip-empty-xacts', '1',
 	'exclude-table', '~t', 'include-table', '~.2');
 
 
