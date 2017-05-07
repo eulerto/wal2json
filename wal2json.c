@@ -672,7 +672,7 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 			if (change->data.tp.newtuple == NULL)
 			{
 				elog(WARNING, "no tuple data for INSERT in table \"%s\"", NameStr(class_form->relname));
-				return;
+				goto exit;
 			}
 			break;
 		case REORDER_BUFFER_CHANGE_UPDATE:
@@ -685,13 +685,13 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 			{
 				/* FIXME this sentence is imprecise */
 				elog(WARNING, "table \"%s\" without primary key or replica identity is nothing", NameStr(class_form->relname));
-				return;
+				goto exit;
 			}
 
 			if (change->data.tp.newtuple == NULL)
 			{
 				elog(WARNING, "no tuple data for UPDATE in table \"%s\"", NameStr(class_form->relname));
-				return;
+				goto exit;
 			}
 			break;
 		case REORDER_BUFFER_CHANGE_DELETE:
@@ -704,13 +704,13 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 			{
 				/* FIXME this sentence is imprecise */
 				elog(WARNING, "table \"%s\" without primary key or replica identity is nothing", NameStr(class_form->relname));
-				return;
+				goto exit;
 			}
 
 			if (change->data.tp.oldtuple == NULL)
 			{
 				elog(WARNING, "no tuple data for DELETE in table \"%s\"", NameStr(class_form->relname));
-				return;
+				goto exit;
 			}
 			break;
 		default:
@@ -850,9 +850,10 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	else
 		appendStringInfoChar(ctx->out, '}');
 
-	MemoryContextSwitchTo(old);
-	MemoryContextReset(data->context);
-
 	if (data->write_in_chunks)
 		OutputPluginWrite(ctx, true);
+
+exit:
+	MemoryContextSwitchTo(old);
+	MemoryContextReset(data->context);
 }
