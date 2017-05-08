@@ -3,10 +3,10 @@
 
 #include "postgres.h"
 
-#include "catalog/pg_class.h"
 #include "lib/ilist.h"
 #include "nodes/parsenodes.h"
 #include "regex/regex.h"
+#include "utils/relcache.h"
 
 typedef enum
 {
@@ -36,7 +36,7 @@ typedef struct
 
 void inc_parse_include_table(DefElem *elem, InclusionCommands **cmds);
 void inc_parse_exclude_table(DefElem *elem, InclusionCommands **cmds);
-bool inc_should_emit(InclusionCommands *cmds, Form_pg_class class_form);
+bool inc_should_emit(InclusionCommands *cmds, Relation relation);
 
 
 #endif

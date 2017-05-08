@@ -14,6 +14,7 @@
 #include "postgres.h"
 
 #include "wal2json.h"
+#include "reldata.h"
 
 #include "access/sysattr.h"
 
@@ -94,6 +95,8 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 	data->commands = NULL;
 
 	data->nr_changes = 0;
+
+	data->reldata = reldata_create();
 
 	ctx->output_plugin_private = data;
 
@@ -668,16 +671,30 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 
 	Relation	indexrel;
 	TupleDesc	indexdesc;
+	JsonRelationEntry *entry;
 
 	AssertVariableIsOfType(&pg_decode_change, LogicalDecodeChangeCB);
 
 	data = ctx->output_plugin_private;
-	class_form = RelationGetForm(relation);
-	tupdesc = RelationGetDescr(relation);
+
+	/* Look up or insert a new entry in the cache */
+	entry = reldata_enter(data->reldata, relation->rd_id);
 
 	/* check if we have to emit this table */
-	if (!inc_should_emit(data->commands, class_form))
+	if (entry->exclude) {
 		return;
+	}
+	else if (!entry->include) {
+		entry->include = inc_should_emit(data->commands, relation);
+		if (!entry->include)
+		{
+			entry->exclude = true;
+			return;
+		}
+	}
+
+	class_form = RelationGetForm(relation);
+	tupdesc = RelationGetDescr(relation);
 
 	/* Avoid leaking memory by using and resetting our own context */
 	old = MemoryContextSwitchTo(data->context);

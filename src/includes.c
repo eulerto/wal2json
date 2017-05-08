@@ -1,8 +1,10 @@
 #include "includes.h"
 
 #include "wal2json.h"
+#include "reldata.h"
 
 #include "catalog/pg_collation.h"
+#include "utils/rel.h"
 
 
 /* forward declarations */
@@ -88,10 +90,13 @@ inc_parse_exclude_table(DefElem *elem, InclusionCommands **cmds)
 
 /* Return True if a table should be included in the output */
 bool
-inc_should_emit(InclusionCommands *cmds, Form_pg_class class_form)
+inc_should_emit(InclusionCommands *cmds, Relation relation)
 {
+	Form_pg_class class_form;
 	dlist_iter iter;
 	bool rv = false;
+
+	class_form = RelationGetForm(relation);
 
 	/* No command: include everything by default */
 	if (cmds == NULL)
@@ -131,6 +136,8 @@ inc_should_emit(InclusionCommands *cmds, Form_pg_class class_form)
 		}
 	}
 
+	elog(DEBUG1, "table \"%s\" matches include commands: %s",
+		NameStr(class_form->relname), rv ? "yes" : "no");
 	return rv;
 }
 

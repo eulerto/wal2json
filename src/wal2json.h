@@ -3,6 +3,8 @@
 
 #include "postgres.h"
 
+#include "utils/hsearch.h"
+
 #include "includes.h"
 
 typedef struct
@@ -27,6 +29,7 @@ typedef struct
 									/* FIXME replace with txn->nentries */
 
 	InclusionCommands *commands;	/* tables to include/exclude */
+	HTAB *reldata;					/* details about tables processed */
 
 } JsonDecodingData;
 
