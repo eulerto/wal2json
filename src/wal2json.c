@@ -10,7 +10,11 @@
  *
  *-------------------------------------------------------------------------
  */
+
 #include "postgres.h"
+
+#include "wal2json.h"
+#include "reldata.h"
 
 #include "access/sysattr.h"
 
@@ -37,26 +41,6 @@ PG_MODULE_MAGIC;
 extern void		_PG_init(void);
 extern void		_PG_output_plugin_init(OutputPluginCallbacks *cb);
 
-typedef struct
-{
-	MemoryContext context;
-	bool		include_xids;		/* include transaction ids */
-	bool		include_timestamp;	/* include transaction timestamp */
-	bool		include_schemas;	/* qualify tables */
-	bool		include_types;		/* include data types */
-
-	bool		pretty_print;		/* pretty-print JSON? */
-	bool		write_in_chunks;	/* write in chunks? */
-
-	/*
-	 * LSN pointing to the end of commit record + 1 (txn->end_lsn)
-	 * It is useful for tools that wants a position to restart from.
-	 */
-	bool		include_lsn;		/* include LSNs */
-
-	uint64		nr_changes;			/* # of passes in pg_decode_change() */
-									/* FIXME replace with txn->nentries */
-} JsonDecodingData;
 
 /* These must be available to pg_dlsym() */
 static void pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is_init);
@@ -88,7 +72,7 @@ _PG_output_plugin_init(OutputPluginCallbacks *cb)
 }
 
 /* Initialize this plugin */
-void
+static void
 pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is_init)
 {
 	ListCell	*option;
@@ -107,8 +91,12 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 	data->pretty_print = false;
 	data->write_in_chunks = true;
 	data->include_lsn = false;
+	data->skip_empty_xacts = false;
+	data->commands = NULL;
 
 	data->nr_changes = 0;
+
+	data->reldata = reldata_create();
 
 	ctx->output_plugin_private = data;
 
@@ -212,6 +200,24 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
 							 strVal(elem->arg), elem->defname)));
 		}
+		else if (strcmp(elem->defname, "include-table") == 0)
+		{
+			inc_parse_include_table(elem, &data->commands);
+		}
+		else if (strcmp(elem->defname, "exclude-table") == 0)
+		{
+			inc_parse_exclude_table(elem, &data->commands);
+		}
+		else if (strcmp(elem->defname, "skip-empty-xacts") == 0)
+		{
+			if (elem->arg == NULL)
+				data->skip_empty_xacts = true;
+			else if (!parse_bool(strVal(elem->arg), &data->skip_empty_xacts))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
+						 strVal(elem->arg), elem->defname)));
+		}
 		else
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -231,14 +237,26 @@ pg_decode_shutdown(LogicalDecodingContext *ctx)
 	MemoryContextDelete(data->context);
 }
 
+
 /* BEGIN callback */
-void
+static void output_begin(LogicalDecodingContext *ctx, JsonDecodingData *data,
+		ReorderBufferTXN *txn, bool last_write);
+
+static void
 pg_decode_begin_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 {
 	JsonDecodingData *data = ctx->output_plugin_private;
 
 	data->nr_changes = 0;
 
+	if (!data->skip_empty_xacts)
+		output_begin(ctx, data, txn, true);
+}
+
+static void
+output_begin(LogicalDecodingContext *ctx, JsonDecodingData *data,
+		ReorderBufferTXN *txn, bool last_write)
+{
 	/* Transaction starts */
 	OutputPluginPrepareWrite(ctx, true);
 
@@ -281,11 +299,11 @@ pg_decode_begin_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 		appendStringInfoString(ctx->out, "\"change\":[");
 
 	if (data->write_in_chunks)
-		OutputPluginWrite(ctx, true);
+		OutputPluginWrite(ctx, last_write);
 }
 
 /* COMMIT callback */
-void
+static void
 pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 					 XLogRecPtr commit_lsn)
 {
@@ -297,6 +315,9 @@ pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 		elog(DEBUG1, "txn has catalog changes: no");
 	elog(DEBUG1, "my change counter: %lu ; # of changes: %lu ; # of changes in memory: %lu", data->nr_changes, txn->nentries, txn->nentries_mem);
 	elog(DEBUG1, "# of subxacts: %d", txn->nsubtxns);
+
+	if (data->skip_empty_xacts && data->nr_changes == 0)
+		return;
 
 	/* Transaction ends */
 	if (data->write_in_chunks)
@@ -650,18 +671,33 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 
 	Relation	indexrel;
 	TupleDesc	indexdesc;
+	JsonRelationEntry *entry;
 
 	AssertVariableIsOfType(&pg_decode_change, LogicalDecodeChangeCB);
 
 	data = ctx->output_plugin_private;
+
+	/* Look up or insert a new entry in the cache */
+	entry = reldata_enter(data->reldata, relation->rd_id);
+
+	/* check if we have to emit this table */
+	if (entry->exclude) {
+		return;
+	}
+	else if (!entry->include) {
+		entry->include = inc_should_emit(data->commands, relation);
+		if (!entry->include)
+		{
+			entry->exclude = true;
+			return;
+		}
+	}
+
 	class_form = RelationGetForm(relation);
 	tupdesc = RelationGetDescr(relation);
 
 	/* Avoid leaking memory by using and resetting our own context */
 	old = MemoryContextSwitchTo(data->context);
-
-	if (data->write_in_chunks)
-		OutputPluginPrepareWrite(ctx, true);
 
 	/* Make sure rd_replidindex is set */
 	RelationGetIndexList(relation);
@@ -673,7 +709,7 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 			if (change->data.tp.newtuple == NULL)
 			{
 				elog(WARNING, "no tuple data for INSERT in table \"%s\"", NameStr(class_form->relname));
-				return;
+				goto exit;
 			}
 			break;
 		case REORDER_BUFFER_CHANGE_UPDATE:
@@ -686,13 +722,13 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 			{
 				/* FIXME this sentence is imprecise */
 				elog(WARNING, "table \"%s\" without primary key or replica identity is nothing", NameStr(class_form->relname));
-				return;
+				goto exit;
 			}
 
 			if (change->data.tp.newtuple == NULL)
 			{
 				elog(WARNING, "no tuple data for UPDATE in table \"%s\"", NameStr(class_form->relname));
-				return;
+				goto exit;
 			}
 			break;
 		case REORDER_BUFFER_CHANGE_DELETE:
@@ -705,18 +741,24 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 			{
 				/* FIXME this sentence is imprecise */
 				elog(WARNING, "table \"%s\" without primary key or replica identity is nothing", NameStr(class_form->relname));
-				return;
+				goto exit;
 			}
 
 			if (change->data.tp.oldtuple == NULL)
 			{
 				elog(WARNING, "no tuple data for DELETE in table \"%s\"", NameStr(class_form->relname));
-				return;
+				goto exit;
 			}
 			break;
 		default:
 			Assert(false);
 	}
+
+	if (data->skip_empty_xacts && data->nr_changes == 0)
+		output_begin(ctx, data, txn, false);
+
+	if (data->write_in_chunks)
+		OutputPluginPrepareWrite(ctx, true);
 
 	/* Change counter */
 	data->nr_changes++;
@@ -851,9 +893,10 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	else
 		appendStringInfoChar(ctx->out, '}');
 
-	MemoryContextSwitchTo(old);
-	MemoryContextReset(data->context);
-
 	if (data->write_in_chunks)
 		OutputPluginWrite(ctx, true);
+
+exit:
+	MemoryContextSwitchTo(old);
+	MemoryContextReset(data->context);
 }
