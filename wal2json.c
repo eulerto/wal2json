@@ -70,6 +70,9 @@ static void pg_decode_change(LogicalDecodingContext *ctx,
 				 ReorderBufferTXN *txn, Relation rel,
 				 ReorderBufferChange *change);
 
+static void output_begin(LogicalDecodingContext *ctx, JsonDecodingData *data,
+		ReorderBufferTXN *txn, bool last_write);
+
 void
 _PG_init(void)
 {
@@ -249,9 +252,6 @@ pg_decode_shutdown(LogicalDecodingContext *ctx)
 
 
 /* BEGIN callback */
-static void output_begin(LogicalDecodingContext *ctx, JsonDecodingData *data,
-		ReorderBufferTXN *txn, bool last_write);
-
 void
 pg_decode_begin_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 {
