@@ -112,7 +112,7 @@ WARNING:  table "table_with_unique" without primary key or replica identity is n
 DELETE FROM table_without_pk WHERE b = 2;
 DELETE FROM table_with_pk WHERE b = 2;
 DELETE FROM table_with_unique WHERE b = 2;
-SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'include-xids', '0', 'pretty-print', '1', 'skip-empty-xacts', '1');
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'include-xids', '0', 'pretty-print', '1', 'include-empty-xacts', '0');
 WARNING:  table "table_without_pk" without primary key or replica identity is nothing
 WARNING:  table "table_with_unique" without primary key or replica identity is nothing
                                  data                                  
