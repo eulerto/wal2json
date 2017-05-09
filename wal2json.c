@@ -268,7 +268,7 @@ output_begin(LogicalDecodingContext *ctx, JsonDecodingData *data,
 		ReorderBufferTXN *txn, bool last_write)
 {
 	/* Transaction starts */
-	OutputPluginPrepareWrite(ctx, true);
+	OutputPluginPrepareWrite(ctx, last_write);
 
 	if (data->pretty_print)
 		appendStringInfoString(ctx->out, "{\n");
