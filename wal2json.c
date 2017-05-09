@@ -218,7 +218,10 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 		{
 
 			if (elem->arg == NULL)
+			{
+				elog(LOG, "skip-empty-xacts argument is null");
 				data->skip_empty_xacts = true;
+			}
 			else if (!parse_bool(strVal(elem->arg), &data->skip_empty_xacts))
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
