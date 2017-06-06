@@ -297,7 +297,8 @@ pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 		elog(DEBUG1, "txn has catalog changes: yes");
 	else
 		elog(DEBUG1, "txn has catalog changes: no");
-	elog(DEBUG1, "my change counter: %lu ; # of changes: %lu ; # of changes in memory: %lu", data->nr_changes, txn->nentries, txn->nentries_mem);
+	elog(DEBUG1, "my change counter: %llu ; # of changes: %llu ; # of changes in memory: %llu",
+		 data->nr_changes, txn->nentries, txn->nentries_mem);
 	elog(DEBUG1, "# of subxacts: %d", txn->nsubtxns);
 
 	/* Transaction ends */
