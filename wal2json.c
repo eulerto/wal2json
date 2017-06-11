@@ -58,6 +58,10 @@ typedef struct
 									/* FIXME replace with txn->nentries */
 } JsonDecodingData;
 
+#if PG_VERSION_NUM >= 90600
+#define HAVE_LOGICAL_EMIT_MESSAGE
+#endif
+
 /* These must be available to pg_dlsym() */
 static void pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is_init);
 static void pg_decode_shutdown(LogicalDecodingContext *ctx);
@@ -68,6 +72,10 @@ static void pg_decode_commit_txn(LogicalDecodingContext *ctx,
 static void pg_decode_change(LogicalDecodingContext *ctx,
 				 ReorderBufferTXN *txn, Relation rel,
 				 ReorderBufferChange *change);
+static void pg_decode_message(LogicalDecodingContext *ctx,
+         ReorderBufferTXN *txn, XLogRecPtr message_lsn,
+         bool transactional, const char *prefix,
+         Size sz, const char *message);
 
 void
 _PG_init(void)
@@ -85,6 +93,7 @@ _PG_output_plugin_init(OutputPluginCallbacks *cb)
 	cb->change_cb = pg_decode_change;
 	cb->commit_cb = pg_decode_commit_txn;
 	cb->shutdown_cb = pg_decode_shutdown;
+  cb->message_cb = pg_decode_message;
 }
 
 /* Initialize this plugin */
@@ -869,3 +878,84 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	if (data->write_in_chunks)
 		OutputPluginWrite(ctx, true);
 }
+
+#ifdef HAVE_LOGICAL_EMIT_MESSAGE
+static void
+pg_decode_message(LogicalDecodingContext *ctx,
+         ReorderBufferTXN *txn, XLogRecPtr message_lsn, bool transactional,
+         const char *prefix, Size sz, const char *message)
+{
+	JsonDecodingData *data;
+	MemoryContext old;
+
+  /*
+   * Punt on handling non-transactional logical messages as they don't really
+   * fit in with wal2json's 1 txn : 1 json approach.
+   */
+  if(!transactional)
+  {
+    elog(DEBUG1, "ignoring non-transactional pg_logical_emit_message");
+    return;
+  }
+
+	data = ctx->output_plugin_private;
+	old = MemoryContextSwitchTo(data->context);
+
+	/* Message counter */
+	data->nr_changes++;
+
+	/* Message starts */
+	if (data->pretty_print)
+	{
+		/* if we don't write in chunks, we need a newline here */
+		if (!data->write_in_chunks)
+			appendStringInfoChar(ctx->out, '\n');
+
+		appendStringInfoString(ctx->out, "\t\t");
+
+		if (data->nr_changes > 1)
+			appendStringInfoChar(ctx->out, ',');
+
+		appendStringInfoString(ctx->out, "{\n");
+	}
+	else
+	{
+		if (data->nr_changes > 1)
+			appendStringInfoString(ctx->out, ",{");
+		else
+			appendStringInfoChar(ctx->out, '{');
+	}
+
+  if(data->pretty_print)
+  {
+    appendStringInfoString(ctx->out, "\t\t\t\"kind\": \"message\",\n");
+    appendStringInfo(ctx->out, "\t\t\t\"transactional\": \"%d\",\n", transactional);
+    appendStringInfoString(ctx->out, "\t\t\t\"prefix\": ");
+    quote_escape_json(ctx->out, prefix);
+    appendStringInfoString(ctx->out, ",\n\t\t\t\"content\": ");
+    quote_escape_json(ctx->out, message);
+    appendStringInfoString(ctx->out, "\n");
+  }
+  else
+  {
+    appendStringInfoString(ctx->out, "\"kind\":\"message\",");
+    appendStringInfo(ctx->out, "\"transactional\":\"%d\",", transactional);
+    appendStringInfoString(ctx->out, "\"prefix\":");
+    quote_escape_json(ctx->out, prefix);
+    appendStringInfoString(ctx->out, ",\"content\":");
+    quote_escape_json(ctx->out, message);
+  }
+  /* Message ends */
+
+  if (data->pretty_print)
+    appendStringInfoString(ctx->out, "\t\t}");
+  else
+    appendStringInfoChar(ctx->out, '}');
+
+  MemoryContextSwitchTo(old);
+  MemoryContextReset(data->context);
+
+  if (data->write_in_chunks)
+    OutputPluginWrite(ctx, true);
+}
+#endif
