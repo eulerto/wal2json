@@ -887,6 +887,7 @@ pg_decode_message(LogicalDecodingContext *ctx,
 {
 	JsonDecodingData *data;
 	MemoryContext old;
+  StringInfoData message_buffer;
 
   /*
    * Punt on handling non-transactional logical messages as they don't really
@@ -900,6 +901,7 @@ pg_decode_message(LogicalDecodingContext *ctx,
 
 	data = ctx->output_plugin_private;
 	old = MemoryContextSwitchTo(data->context);
+  initStringInfo(&message_buffer);
 
 	/* Message counter */
 	data->nr_changes++;
@@ -931,26 +933,33 @@ pg_decode_message(LogicalDecodingContext *ctx,
     appendStringInfoString(ctx->out, "\t\t\t\"kind\": \"message\",\n");
     appendStringInfo(ctx->out, "\t\t\t\"transactional\": \"%d\",\n", transactional);
     appendStringInfoString(ctx->out, "\t\t\t\"prefix\": ");
-    quote_escape_json(ctx->out, prefix);
-    appendStringInfoString(ctx->out, ",\n\t\t\t\"content\": ");
-    quote_escape_json(ctx->out, message);
-    appendStringInfoString(ctx->out, "\n");
   }
   else
   {
     appendStringInfoString(ctx->out, "\"kind\":\"message\",");
     appendStringInfo(ctx->out, "\"transactional\":\"%d\",", transactional);
     appendStringInfoString(ctx->out, "\"prefix\":");
-    quote_escape_json(ctx->out, prefix);
-    appendStringInfoString(ctx->out, ",\"content\":");
-    quote_escape_json(ctx->out, message);
   }
-  /* Message ends */
+
+  quote_escape_json(ctx->out, prefix);
 
   if (data->pretty_print)
+    appendStringInfoString(ctx->out, ",\n\t\t\t\"content\": ");
+  else
+    appendStringInfoString(ctx->out, ",\"content\":");
+
+  appendBinaryStringInfo(&message_buffer, message, sz);
+  quote_escape_json(ctx->out, message_buffer.data);
+
+  if (data->pretty_print)
+  {
+    appendStringInfoString(ctx->out, "\n");
     appendStringInfoString(ctx->out, "\t\t}");
+  }
   else
     appendStringInfoChar(ctx->out, '}');
+
+  pfree(message_buffer.data);
 
   MemoryContextSwitchTo(old);
   MemoryContextReset(data->context);

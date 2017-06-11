@@ -46,4 +46,8 @@ SELECT 'emit' FROM pg_logical_emit_message(true, 'pretty prefix', 'pretty2');
 COMMIT;
 SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pretty-print', '1');
 
+-- Small message renders correct size
+SELECT 'emit' FROM pg_logical_emit_message(true, 'a pretty prefix that is long', 'a');
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pretty-print', '1');
+
 SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');

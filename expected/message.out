@@ -131,6 +131,28 @@ SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pre
  }
 (1 row)
 
+-- Small message renders correct size
+SELECT 'emit' FROM pg_logical_emit_message(true, 'a pretty prefix that is long', 'a');
+ ?column? 
+----------
+ emit
+(1 row)
+
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pretty-print', '1');
+                               data                                
+-------------------------------------------------------------------
+ {                                                                +
+         "change": [                                              +
+                 {                                                +
+                         "kind": "message",                       +
+                         "transactional": "1",                    +
+                         "prefix": "a pretty prefix that is long",+
+                         "content": "a"                           +
+                 }                                                +
+         ]                                                        +
+ }
+(1 row)
+
 SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
  ?column? 
 ----------
