@@ -888,6 +888,7 @@ pg_decode_message(LogicalDecodingContext *ctx,
 	JsonDecodingData *data;
 	MemoryContext old;
 	StringInfoData message_buffer;
+	StringInfoData prefix_buffer;
 
 	/*
 	 * Punt on handling non-transactional logical messages as they don't really
@@ -902,6 +903,7 @@ pg_decode_message(LogicalDecodingContext *ctx,
 	data = ctx->output_plugin_private;
 	old = MemoryContextSwitchTo(data->context);
 	initStringInfo(&message_buffer);
+	initStringInfo(&prefix_buffer);
 
 	/* Message counter */
 	data->nr_changes++;
@@ -941,7 +943,8 @@ pg_decode_message(LogicalDecodingContext *ctx,
 		appendStringInfoString(ctx->out, "\"prefix\":");
 	}
 
-	quote_escape_json(ctx->out, prefix);
+	appendStringInfoString(&prefix_buffer, prefix);
+	quote_escape_json(ctx->out, prefix_buffer.data);
 
 	if (data->pretty_print)
 		appendStringInfoString(ctx->out, ",\n\t\t\t\"content\": ");
@@ -960,6 +963,7 @@ pg_decode_message(LogicalDecodingContext *ctx,
 		appendStringInfoChar(ctx->out, '}');
 
 	pfree(message_buffer.data);
+	pfree(prefix_buffer.data);
 
 	MemoryContextSwitchTo(old);
 	MemoryContextReset(data->context);
