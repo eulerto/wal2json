@@ -153,6 +153,24 @@ SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pre
  }
 (1 row)
 
+-- Non-transactional messages
+BEGIN;
+INSERT INTO message_table (b) VALUES (1);
+SELECT 'emit' FROM pg_logical_emit_message(false, 'non-transactional prefix', 'non-transactional message');
+ ?column? 
+----------
+ emit
+(1 row)
+
+INSERT INTO message_table (b) VALUES (2);
+COMMIT;
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
+                                                                                                                                            data                                                                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"change":[{"kind":"message","transactional":"0","prefix":"non-transactional prefix","content":"non-transactional message"}]}
+ {"change":[{"kind":"insert","schema":"public","table":"message_table","columnnames":["a","b"],"columntypes":["int2","int2"],"columnvalues":[4,1]},{"kind":"insert","schema":"public","table":"message_table","columnnames":["a","b"],"columntypes":["int2","int2"],"columnvalues":[5,2]}]}
+(2 rows)
+
 SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
  ?column? 
 ----------

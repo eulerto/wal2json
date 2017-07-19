@@ -1,7 +1,7 @@
 /*-------------------------------------------------------------------------
  *
  * wal2json.c
- * 		JSON output plugin for changeset extraction
+ *		JSON output plugin for changeset extraction
  *
  * Copyright (c) 2013-2017, PostgreSQL Global Development Group
  *
@@ -894,20 +894,24 @@ pg_decode_message(LogicalDecodingContext *ctx,
 	StringInfoData message_buffer;
 	StringInfoData prefix_buffer;
 
-	/*
-	 * Punt on handling non-transactional logical messages as they don't really
-	 * fit in with wal2json's 1 txn : 1 json approach.
-	 */
-	if(!transactional)
-	{
-		elog(DEBUG1, "ignoring non-transactional pg_logical_emit_message");
-		return;
-	}
+	StringInfo old_out;
 
 	data = ctx->output_plugin_private;
 	old = MemoryContextSwitchTo(data->context);
 	initStringInfo(&message_buffer);
 	initStringInfo(&prefix_buffer);
+
+	/*
+	 * Non-transactional messages need to break out of the existing prepared write
+	 */
+	if(!transactional)
+	{
+		old_out = ctx->out;
+		ctx->out = makeStringInfo();
+
+		OutputPluginPrepareWrite(ctx, true);
+		appendStringInfoString(ctx->out, "{\"change\":[");
+	}
 
 	/* Message counter */
 	data->nr_changes++;
@@ -974,5 +978,14 @@ pg_decode_message(LogicalDecodingContext *ctx,
 
 	if (data->write_in_chunks)
 		OutputPluginWrite(ctx, true);
+
+	if (!transactional)
+	{
+		appendStringInfoString(ctx->out, "]}");
+		OutputPluginWrite(ctx, true);
+		pfree(ctx->out);
+		ctx->out = old_out;
+		pfree(old_out);
+	}
 }
 #endif

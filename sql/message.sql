@@ -50,4 +50,12 @@ SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pre
 SELECT 'emit' FROM pg_logical_emit_message(true, 'a pretty prefix that is long', 'a');
 SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pretty-print', '1');
 
+-- Non-transactional messages
+BEGIN;
+INSERT INTO message_table (b) VALUES (1);
+SELECT 'emit' FROM pg_logical_emit_message(false, 'non-transactional prefix', 'non-transactional message');
+INSERT INTO message_table (b) VALUES (2);
+COMMIT;
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
+
 SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
