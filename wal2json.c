@@ -72,10 +72,12 @@ static void pg_decode_commit_txn(LogicalDecodingContext *ctx,
 static void pg_decode_change(LogicalDecodingContext *ctx,
 				 ReorderBufferTXN *txn, Relation rel,
 				 ReorderBufferChange *change);
+#ifdef HAVE_LOGICAL_EMIT_MESSAGE
 static void pg_decode_message(LogicalDecodingContext *ctx,
 				 ReorderBufferTXN *txn, XLogRecPtr message_lsn,
 				 bool transactional, const char *prefix,
 				 Size sz, const char *message);
+#endif
 
 void
 _PG_init(void)
@@ -93,7 +95,9 @@ _PG_output_plugin_init(OutputPluginCallbacks *cb)
 	cb->change_cb = pg_decode_change;
 	cb->commit_cb = pg_decode_commit_txn;
 	cb->shutdown_cb = pg_decode_shutdown;
+#ifdef HAVE_LOGICAL_EMIT_MESSAGE
 	cb->message_cb = pg_decode_message;
+#endif
 }
 
 /* Initialize this plugin */
