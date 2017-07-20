@@ -941,13 +941,23 @@ pg_decode_message(LogicalDecodingContext *ctx,
 	if(data->pretty_print)
 	{
 		appendStringInfoString(ctx->out, "\t\t\t\"kind\": \"message\",\n");
-		appendStringInfo(ctx->out, "\t\t\t\"transactional\": \"%d\",\n", transactional);
+
+    if (transactional)
+      appendStringInfoString(ctx->out, "\t\t\t\"transactional\": true,\n");
+    else
+      appendStringInfoString(ctx->out, "\t\t\t\"transactional\": false,\n");
+
 		appendStringInfoString(ctx->out, "\t\t\t\"prefix\": ");
 	}
 	else
 	{
 		appendStringInfoString(ctx->out, "\"kind\":\"message\",");
-		appendStringInfo(ctx->out, "\"transactional\":\"%d\",", transactional);
+
+    if (transactional)
+      appendStringInfoString(ctx->out, "\"transactional\":true,");
+    else
+      appendStringInfoString(ctx->out, "\"transactional\":false,");
+
 		appendStringInfoString(ctx->out, "\"prefix\":");
 	}
 

@@ -16,9 +16,9 @@ SELECT 'emit' FROM pg_logical_emit_message(true, 'foo', 'bar');
 (1 row)
 
 SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
-                                        data                                        
-------------------------------------------------------------------------------------
- {"change":[{"kind":"message","transactional":"1","prefix":"foo","content":"bar"}]}
+                                        data                                         
+-------------------------------------------------------------------------------------
+ {"change":[{"kind":"message","transactional":true,"prefix":"foo","content":"bar"}]}
 (1 row)
 
 -- Two messages
@@ -37,9 +37,9 @@ SELECT 'emit' FROM pg_logical_emit_message(true, 'foo', 'bar');
 
 COMMIT;
 SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
-                                                                           data                                                                           
-----------------------------------------------------------------------------------------------------------------------------------------------------------
- {"change":[{"kind":"message","transactional":"1","prefix":"foo","content":"bar"},{"kind":"message","transactional":"1","prefix":"foo","content":"bar"}]}
+                                                                            data                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"change":[{"kind":"message","transactional":true,"prefix":"foo","content":"bar"},{"kind":"message","transactional":true,"prefix":"foo","content":"bar"}]}
 (1 row)
 
 -- Message sandwiched by changes
@@ -54,9 +54,9 @@ SELECT 'emit' FROM pg_logical_emit_message(true, 'foo', 'bar');
 INSERT INTO message_table (b) VALUES (2);
 COMMIT;
 SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
-                                                                                                                                                                               data                                                                                                                                                                               
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"change":[{"kind":"insert","schema":"public","table":"message_table","columnnames":["a","b"],"columntypes":["int2","int2"],"columnvalues":[1,1]},{"kind":"message","transactional":"1","prefix":"foo","content":"bar"},{"kind":"insert","schema":"public","table":"message_table","columnnames":["a","b"],"columntypes":["int2","int2"],"columnvalues":[2,2]}]}
+                                                                                                                                                                               data                                                                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"change":[{"kind":"insert","schema":"public","table":"message_table","columnnames":["a","b"],"columntypes":["int2","int2"],"columnvalues":[1,1]},{"kind":"message","transactional":true,"prefix":"foo","content":"bar"},{"kind":"insert","schema":"public","table":"message_table","columnnames":["a","b"],"columntypes":["int2","int2"],"columnvalues":[2,2]}]}
 (1 row)
 
 -- Changes sandwiched by messages
@@ -76,9 +76,9 @@ SELECT 'emit' FROM pg_logical_emit_message(true, 'after', 'after');
 
 COMMIT;
 SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
-                                                                                                                                                   data                                                                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"change":[{"kind":"message","transactional":"1","prefix":"before","content":"before"},{"kind":"insert","schema":"public","table":"message_table","columnnames":["a","b"],"columntypes":["int2","int2"],"columnvalues":[3,3]},{"kind":"message","transactional":"1","prefix":"after","content":"after"}]}
+                                                                                                                                                    data                                                                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"change":[{"kind":"message","transactional":true,"prefix":"before","content":"before"},{"kind":"insert","schema":"public","table":"message_table","columnnames":["a","b"],"columntypes":["int2","int2"],"columnvalues":[3,3]},{"kind":"message","transactional":true,"prefix":"after","content":"after"}]}
 (1 row)
 
 -- Changes with newlines and quotes
@@ -90,9 +90,9 @@ SELECT 'emit' FROM pg_logical_emit_message(true, 'funky prefix', 'well " " " "" 
 (1 row)
 
 SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
-                                                                 data                                                                  
----------------------------------------------------------------------------------------------------------------------------------------
- {"change":[{"kind":"message","transactional":"1","prefix":"funky prefix","content":"well \" \" \" \"\" \"\" ' ' \n' ' ] [ { } foo"}]}
+                                                                  data                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------
+ {"change":[{"kind":"message","transactional":true,"prefix":"funky prefix","content":"well \" \" \" \"\" \"\" ' ' \n' ' ] [ { } foo"}]}
 (1 row)
 
 -- Pretty
@@ -117,13 +117,13 @@ SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pre
          "change": [                               +
                  {                                 +
                          "kind": "message",        +
-                         "transactional": "1",     +
+                         "transactional": true,    +
                          "prefix": "pretty prefix",+
                          "content": "pretty1"      +
                  }                                 +
                  ,{                                +
                          "kind": "message",        +
-                         "transactional": "1",     +
+                         "transactional": true,    +
                          "prefix": "pretty prefix",+
                          "content": "pretty2"      +
                  }                                 +
@@ -145,7 +145,7 @@ SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pre
          "change": [                                              +
                  {                                                +
                          "kind": "message",                       +
-                         "transactional": "1",                    +
+                         "transactional": true,                   +
                          "prefix": "a pretty prefix that is long",+
                          "content": "a"                           +
                  }                                                +
@@ -167,7 +167,7 @@ COMMIT;
 SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
                                                                                                                                             data                                                                                                                                            
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"change":[{"kind":"message","transactional":"0","prefix":"non-transactional prefix","content":"non-transactional message"}]}
+ {"change":[{"kind":"message","transactional":false,"prefix":"non-transactional prefix","content":"non-transactional message"}]}
  {"change":[{"kind":"insert","schema":"public","table":"message_table","columnnames":["a","b"],"columntypes":["int2","int2"],"columnvalues":[4,1]},{"kind":"insert","schema":"public","table":"message_table","columnnames":["a","b"],"columntypes":["int2","int2"],"columnvalues":[5,2]}]}
 (2 rows)
 
