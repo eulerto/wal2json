@@ -1,0 +1,211 @@
+\set VERBOSITY terse
+-- predictability
+SET synchronous_commit = on;
+CREATE TABLE message_table (a smallserial, b smallint);
+SELECT 'init' FROM pg_create_logical_replication_slot('regression_slot', 'wal2json');
+ ?column? 
+----------
+ init
+(1 row)
+
+-- One message
+SELECT 'emit' FROM pg_logical_emit_message(true, 'foo', 'bar');
+ ?column? 
+----------
+ emit
+(1 row)
+
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
+                                        data                                         
+-------------------------------------------------------------------------------------
+ {"change":[{"kind":"message","transactional":true,"prefix":"foo","content":"bar"}]}
+(1 row)
+
+-- Two messages
+BEGIN;
+SELECT 'emit' FROM pg_logical_emit_message(true, 'foo', 'bar');
+ ?column? 
+----------
+ emit
+(1 row)
+
+SELECT 'emit' FROM pg_logical_emit_message(true, 'foo', 'bar');
+ ?column? 
+----------
+ emit
+(1 row)
+
+COMMIT;
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
+                                                                            data                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"change":[{"kind":"message","transactional":true,"prefix":"foo","content":"bar"},{"kind":"message","transactional":true,"prefix":"foo","content":"bar"}]}
+(1 row)
+
+-- Message sandwiched by changes
+BEGIN;
+INSERT INTO message_table (b) VALUES (1);
+SELECT 'emit' FROM pg_logical_emit_message(true, 'foo', 'bar');
+ ?column? 
+----------
+ emit
+(1 row)
+
+INSERT INTO message_table (b) VALUES (2);
+COMMIT;
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
+                                                                                                                                                                               data                                                                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"change":[{"kind":"insert","schema":"public","table":"message_table","columnnames":["a","b"],"columntypes":["int2","int2"],"columnvalues":[1,1]},{"kind":"message","transactional":true,"prefix":"foo","content":"bar"},{"kind":"insert","schema":"public","table":"message_table","columnnames":["a","b"],"columntypes":["int2","int2"],"columnvalues":[2,2]}]}
+(1 row)
+
+-- Changes sandwiched by messages
+BEGIN;
+SELECT 'emit' FROM pg_logical_emit_message(true, 'before', 'before');
+ ?column? 
+----------
+ emit
+(1 row)
+
+INSERT INTO message_table (b) VALUES (3);
+SELECT 'emit' FROM pg_logical_emit_message(true, 'after', 'after');
+ ?column? 
+----------
+ emit
+(1 row)
+
+COMMIT;
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
+                                                                                                                                                    data                                                                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"change":[{"kind":"message","transactional":true,"prefix":"before","content":"before"},{"kind":"insert","schema":"public","table":"message_table","columnnames":["a","b"],"columntypes":["int2","int2"],"columnvalues":[3,3]},{"kind":"message","transactional":true,"prefix":"after","content":"after"}]}
+(1 row)
+
+-- Changes with newlines and quotes
+SELECT 'emit' FROM pg_logical_emit_message(true, 'funky prefix', 'well " " " "" "" '' '' 
+'' '' ] [ { } foo');
+ ?column? 
+----------
+ emit
+(1 row)
+
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
+                                                                  data                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------
+ {"change":[{"kind":"message","transactional":true,"prefix":"funky prefix","content":"well \" \" \" \"\" \"\" ' ' \n' ' ] [ { } foo"}]}
+(1 row)
+
+-- Pretty
+BEGIN;
+SELECT 'emit' FROM pg_logical_emit_message(true, 'pretty prefix', 'pretty1');
+ ?column? 
+----------
+ emit
+(1 row)
+
+SELECT 'emit' FROM pg_logical_emit_message(true, 'pretty prefix', 'pretty2');
+ ?column? 
+----------
+ emit
+(1 row)
+
+COMMIT;
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pretty-print', '1');
+                        data                        
+----------------------------------------------------
+ {                                                 +
+         "change": [                               +
+                 {                                 +
+                         "kind": "message",        +
+                         "transactional": true,    +
+                         "prefix": "pretty prefix",+
+                         "content": "pretty1"      +
+                 }                                 +
+                 ,{                                +
+                         "kind": "message",        +
+                         "transactional": true,    +
+                         "prefix": "pretty prefix",+
+                         "content": "pretty2"      +
+                 }                                 +
+         ]                                         +
+ }
+(1 row)
+
+-- Small message renders correct size
+SELECT 'emit' FROM pg_logical_emit_message(true, 'a pretty prefix that is long', 'a');
+ ?column? 
+----------
+ emit
+(1 row)
+
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pretty-print', '1');
+                               data                                
+-------------------------------------------------------------------
+ {                                                                +
+         "change": [                                              +
+                 {                                                +
+                         "kind": "message",                       +
+                         "transactional": true,                   +
+                         "prefix": "a pretty prefix that is long",+
+                         "content": "a"                           +
+                 }                                                +
+         ]                                                        +
+ }
+(1 row)
+
+-- Non-transactional messages
+BEGIN;
+INSERT INTO message_table (b) VALUES (1);
+SELECT 'emit' FROM pg_logical_emit_message(false, 'non-transactional prefix', 'non-transactional message');
+ ?column? 
+----------
+ emit
+(1 row)
+
+INSERT INTO message_table (b) VALUES (2);
+COMMIT;
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
+                                                                                                                                            data                                                                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"change":[{"kind":"message","transactional":false,"prefix":"non-transactional prefix","content":"non-transactional message"}]}
+ {"change":[{"kind":"insert","schema":"public","table":"message_table","columnnames":["a","b"],"columntypes":["int2","int2"],"columnvalues":[4,1]},{"kind":"insert","schema":"public","table":"message_table","columnnames":["a","b"],"columntypes":["int2","int2"],"columnvalues":[5,2]}]}
+(2 rows)
+
+-- Standalone non-transactional messages
+SELECT 'emit' FROM pg_logical_emit_message(false, 'non-transactional prefix', 'standalone non-transactional message');
+ ?column? 
+----------
+ emit
+(1 row)
+
+SELECT pg_sleep(0.5); -- need a slight wait for the message to make it to decoding
+ pg_sleep 
+----------
+ 
+(1 row)
+
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
+                                                                    data                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------
+ {"change":[{"kind":"message","transactional":false,"prefix":"non-transactional prefix","content":"standalone non-transactional message"}]}
+(1 row)
+
+-- Bytea
+SELECT 'emit' FROM pg_logical_emit_message(true, 'bytea prefix', decode('DEADBEEF', 'hex'));
+ ?column? 
+----------
+ emit
+(1 row)
+
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
+                                           data                                            
+-------------------------------------------------------------------------------------------
+ {"change":[{"kind":"message","transactional":true,"prefix":"bytea prefix","content":"ޭ"}]}
+(1 row)
+
+SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
+ ?column? 
+----------
+ stop
+(1 row)
+

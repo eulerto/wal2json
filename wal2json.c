@@ -1,7 +1,7 @@
 /*-------------------------------------------------------------------------
  *
  * wal2json.c
- * 		JSON output plugin for changeset extraction
+ *		JSON output plugin for changeset extraction
  *
  * Copyright (c) 2013-2017, PostgreSQL Global Development Group
  *
@@ -58,6 +58,10 @@ typedef struct
 									/* FIXME replace with txn->nentries */
 } JsonDecodingData;
 
+#if PG_VERSION_NUM >= 90600
+#define HAVE_LOGICAL_EMIT_MESSAGE
+#endif
+
 /* These must be available to pg_dlsym() */
 static void pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is_init);
 static void pg_decode_shutdown(LogicalDecodingContext *ctx);
@@ -68,6 +72,12 @@ static void pg_decode_commit_txn(LogicalDecodingContext *ctx,
 static void pg_decode_change(LogicalDecodingContext *ctx,
 				 ReorderBufferTXN *txn, Relation rel,
 				 ReorderBufferChange *change);
+#ifdef HAVE_LOGICAL_EMIT_MESSAGE
+static void pg_decode_message(LogicalDecodingContext *ctx,
+				 ReorderBufferTXN *txn, XLogRecPtr message_lsn,
+				 bool transactional, const char *prefix,
+				 Size sz, const char *message);
+#endif
 
 void
 _PG_init(void)
@@ -85,6 +95,9 @@ _PG_output_plugin_init(OutputPluginCallbacks *cb)
 	cb->change_cb = pg_decode_change;
 	cb->commit_cb = pg_decode_commit_txn;
 	cb->shutdown_cb = pg_decode_shutdown;
+#ifdef HAVE_LOGICAL_EMIT_MESSAGE
+	cb->message_cb = pg_decode_message;
+#endif
 }
 
 /* Initialize this plugin */
@@ -869,3 +882,120 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	if (data->write_in_chunks)
 		OutputPluginWrite(ctx, true);
 }
+
+#ifdef HAVE_LOGICAL_EMIT_MESSAGE
+static void
+pg_decode_message(LogicalDecodingContext *ctx,
+				 ReorderBufferTXN *txn, XLogRecPtr message_lsn, bool transactional,
+				 const char *prefix, Size sz, const char *message)
+{
+	JsonDecodingData *data;
+	MemoryContext old;
+	StringInfoData message_buffer;
+	StringInfoData prefix_buffer;
+
+	StringInfo old_out;
+
+	data = ctx->output_plugin_private;
+	old = MemoryContextSwitchTo(data->context);
+	initStringInfo(&message_buffer);
+	initStringInfo(&prefix_buffer);
+
+	/*
+	 * Non-transactional messages need to break out of the existing prepared write
+	 */
+	if(!transactional)
+	{
+		old_out = ctx->out;
+		ctx->out = makeStringInfo();
+
+		OutputPluginPrepareWrite(ctx, true);
+		appendStringInfoString(ctx->out, "{\"change\":[");
+	}
+
+	/* Message counter */
+	data->nr_changes++;
+
+	/* Message starts */
+	if (data->pretty_print)
+	{
+		/* if we don't write in chunks, we need a newline here */
+		if (!data->write_in_chunks)
+			appendStringInfoChar(ctx->out, '\n');
+
+		appendStringInfoString(ctx->out, "\t\t");
+
+		if (data->nr_changes > 1)
+			appendStringInfoChar(ctx->out, ',');
+
+		appendStringInfoString(ctx->out, "{\n");
+	}
+	else
+	{
+		if (data->nr_changes > 1)
+			appendStringInfoString(ctx->out, ",{");
+		else
+			appendStringInfoChar(ctx->out, '{');
+	}
+
+	if(data->pretty_print)
+	{
+		appendStringInfoString(ctx->out, "\t\t\t\"kind\": \"message\",\n");
+
+		if (transactional)
+			appendStringInfoString(ctx->out, "\t\t\t\"transactional\": true,\n");
+		else
+			appendStringInfoString(ctx->out, "\t\t\t\"transactional\": false,\n");
+
+		appendStringInfoString(ctx->out, "\t\t\t\"prefix\": ");
+	}
+	else
+	{
+		appendStringInfoString(ctx->out, "\"kind\":\"message\",");
+
+		if (transactional)
+			appendStringInfoString(ctx->out, "\"transactional\":true,");
+		else
+			appendStringInfoString(ctx->out, "\"transactional\":false,");
+
+		appendStringInfoString(ctx->out, "\"prefix\":");
+	}
+
+	appendStringInfoString(&prefix_buffer, prefix);
+	quote_escape_json(ctx->out, prefix_buffer.data);
+
+	if (data->pretty_print)
+		appendStringInfoString(ctx->out, ",\n\t\t\t\"content\": ");
+	else
+		appendStringInfoString(ctx->out, ",\"content\":");
+
+	appendBinaryStringInfo(&message_buffer, message, sz);
+	quote_escape_json(ctx->out, message_buffer.data);
+
+	if (data->pretty_print)
+	{
+		appendStringInfoString(ctx->out, "\n");
+		appendStringInfoString(ctx->out, "\t\t}");
+	}
+	else
+		appendStringInfoChar(ctx->out, '}');
+
+	pfree(message_buffer.data);
+	pfree(prefix_buffer.data);
+
+	MemoryContextSwitchTo(old);
+	MemoryContextReset(data->context);
+
+	if (data->write_in_chunks)
+		OutputPluginWrite(ctx, true);
+
+	if (!transactional)
+	{
+		appendStringInfoString(ctx->out, "]}");
+		OutputPluginWrite(ctx, true);
+		pfree(ctx->out);
+		ctx->out = old_out;
+		pfree(old_out);
+	}
+}
+#endif
