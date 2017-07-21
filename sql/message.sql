@@ -58,4 +58,8 @@ INSERT INTO message_table (b) VALUES (2);
 COMMIT;
 SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
 
+-- Bytea
+SELECT 'emit' FROM pg_logical_emit_message(true, 'bytea prefix', decode('DEADBEEF', 'hex'));
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
+
 SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');

@@ -171,6 +171,19 @@ SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
  {"change":[{"kind":"insert","schema":"public","table":"message_table","columnnames":["a","b"],"columntypes":["int2","int2"],"columnvalues":[4,1]},{"kind":"insert","schema":"public","table":"message_table","columnnames":["a","b"],"columntypes":["int2","int2"],"columnvalues":[5,2]}]}
 (2 rows)
 
+-- Bytea
+SELECT 'emit' FROM pg_logical_emit_message(true, 'bytea prefix', decode('DEADBEEF', 'hex'));
+ ?column? 
+----------
+ emit
+(1 row)
+
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
+                                           data                                            
+-------------------------------------------------------------------------------------------
+ {"change":[{"kind":"message","transactional":true,"prefix":"bytea prefix","content":"ޭ"}]}
+(1 row)
+
 SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
  ?column? 
 ----------
