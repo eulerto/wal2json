@@ -171,6 +171,25 @@ SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
  {"change":[{"kind":"insert","schema":"public","table":"message_table","columnnames":["a","b"],"columntypes":["int2","int2"],"columnvalues":[4,1]},{"kind":"insert","schema":"public","table":"message_table","columnnames":["a","b"],"columntypes":["int2","int2"],"columnvalues":[5,2]}]}
 (2 rows)
 
+-- Standalone non-transactional messages
+SELECT 'emit' FROM pg_logical_emit_message(false, 'non-transactional prefix', 'standalone non-transactional message');
+ ?column? 
+----------
+ emit
+(1 row)
+
+SELECT pg_sleep(0.5); -- need a slight wait for the message to make it to decoding
+ pg_sleep 
+----------
+ 
+(1 row)
+
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
+                                                                    data                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------
+ {"change":[{"kind":"message","transactional":false,"prefix":"non-transactional prefix","content":"standalone non-transactional message"}]}
+(1 row)
+
 -- Bytea
 SELECT 'emit' FROM pg_logical_emit_message(true, 'bytea prefix', decode('DEADBEEF', 'hex'));
  ?column? 

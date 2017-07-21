@@ -58,6 +58,11 @@ INSERT INTO message_table (b) VALUES (2);
 COMMIT;
 SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
 
+-- Standalone non-transactional messages
+SELECT 'emit' FROM pg_logical_emit_message(false, 'non-transactional prefix', 'standalone non-transactional message');
+SELECT pg_sleep(0.5); -- need a slight wait for the message to make it to decoding
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
+
 -- Bytea
 SELECT 'emit' FROM pg_logical_emit_message(true, 'bytea prefix', decode('DEADBEEF', 'hex'));
 SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
