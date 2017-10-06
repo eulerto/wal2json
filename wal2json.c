@@ -37,6 +37,8 @@
 
 PG_MODULE_MAGIC;
 
+char *VER = "1.5.2";
+
 extern void		_PG_init(void);
 extern void		_PG_output_plugin_init(OutputPluginCallbacks *cb);
 
@@ -50,6 +52,10 @@ typedef struct
 
 	bool		pretty_print;		/* pretty-print JSON? */
 	bool		write_in_chunks;	/* write in chunks? */
+	char		*filter_tables;		/* filter tables */
+	bool		force_TOAST_table;	/* force output TOAST content table */
+
+	bool 		is_writed_header;
 
 	/*
 	 * LSN pointing to the end of commit record + 1 (txn->end_lsn)
@@ -78,6 +84,8 @@ static void pg_decode_message(LogicalDecodingContext *ctx,
 					Size content_size, const char *content);
 #endif
 
+static int check_tables(LogicalDecodingContext *ctx, char *schema_name, char *table_name);
+
 void
 _PG_init(void)
 {
@@ -87,7 +95,12 @@ _PG_init(void)
 void
 _PG_output_plugin_init(OutputPluginCallbacks *cb)
 {
+	char ver[10];
 	AssertVariableIsOfType(&_PG_output_plugin_init, LogicalOutputPluginInit);
+	
+	strcpy(ver, "V. ");
+	strcat(ver, VER);	
+	elog(LOG, "%s", ver);
 
 	cb->startup_cb = pg_decode_startup;
 	cb->begin_cb = pg_decode_begin_txn;
@@ -106,6 +119,8 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 	ListCell	*option;
 	JsonDecodingData *data;
 
+	elog(DEBUG1, "---------> pg_decode_startup");
+
 	data = palloc0(sizeof(JsonDecodingData));
 	data->context = AllocSetContextCreate(TopMemoryContext,
 										"text conversion context",
@@ -113,12 +128,16 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 										ALLOCSET_DEFAULT_INITSIZE,
 										ALLOCSET_DEFAULT_MAXSIZE);
 	data->include_xids = false;
-	data->include_timestamp = false;
+	data->include_timestamp = true;
 	data->include_schemas = true;
 	data->include_types = true;
 	data->pretty_print = false;
 	data->write_in_chunks = false;
 	data->include_lsn = false;
+	data->filter_tables = NULL;
+	data->force_TOAST_table = true;
+
+	data->is_writed_header = false;
 
 	data->nr_changes = 0;
 
@@ -224,6 +243,36 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
 							 strVal(elem->arg), elem->defname)));
 		}
+		// Filter Tables
+		else if (strcmp(elem->defname, "filter-tables") == 0)
+		{
+			if ( elem->arg == NULL || (strlen(strVal(elem->arg))==0) )
+			{
+				elog(LOG, "filter-tables argument is null or empty");
+			}
+			else
+			{
+				elog(LOG, "filter-tables argument is NOT null");
+				data->filter_tables = strVal(elem->arg);
+				elog(DEBUG1, "filter-tables-VAL: %s, %u", data->filter_tables, (unsigned)strlen(strVal(elem->arg)));
+			}
+		}
+		// Force write TOAST table content
+		else if (strcmp(elem->defname, "force-toast-table") == 0)
+		{
+			/* If option does not provide a value, it means its value is true */
+			if (elem->arg == NULL)
+			{
+				elog(LOG, "include-xids argument is null");
+				data->force_TOAST_table = true;
+			}
+			else if (!parse_bool(strVal(elem->arg), &data->force_TOAST_table))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
+							 strVal(elem->arg), elem->defname)));
+		}
+		//----
 		else
 		{
 			ereport(ERROR,
@@ -240,6 +289,11 @@ static void
 pg_decode_shutdown(LogicalDecodingContext *ctx)
 {
 	JsonDecodingData *data = ctx->output_plugin_private;
+
+	if(data->filter_tables!=NULL)
+	{
+		pfree(data->filter_tables);
+	}
 
 	/* cleanup our own resources via memory context reset */
 	MemoryContextDelete(data->context);
@@ -294,8 +348,9 @@ pg_decode_begin_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 	else
 		appendStringInfoString(ctx->out, "\"change\":[");
 
-	if (data->write_in_chunks)
-		OutputPluginWrite(ctx, true);
+	//Dismissed and moved into 'pg_decode_change'
+	//if (data->write_in_chunks)
+		//OutputPluginWrite(ctx, true);
 }
 
 /* COMMIT callback */
@@ -329,7 +384,11 @@ pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 		appendStringInfoString(ctx->out, "]}");
 	}
 
-	OutputPluginWrite(ctx, true);
+	if (data->nr_changes>0)
+	{
+		OutputPluginWrite(ctx, true);
+	}
+	data->is_writed_header = false;
 }
 
 /*
@@ -503,7 +562,8 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 			continue;
 
 		/* XXX Unchanged TOAST Datum does not need to be output */
-		if (!isnull && typisvarlena && VARATT_IS_EXTERNAL_ONDISK(origval))
+		/* Force extract record from TOAST tables */
+		if (!isnull && typisvarlena && VARATT_IS_EXTERNAL_ONDISK(origval) && !data->force_TOAST_table)
 		{
 			elog(WARNING, "column \"%s\" has an unchanged TOAST", NameStr(attr->attname));
 			continue;
@@ -530,6 +590,8 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 
 			/* Finally got the value */
 			outputstr = OidOutputFunctionCall(typoutput, val);
+
+			//elog(LOG, "typid \"%s\" :: \"%d\"", NameStr(type_form->typname), typid );
 
 			/*
 			 * Data types are printed with quotes unless they are number, true,
@@ -665,6 +727,9 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	Relation	indexrel;
 	TupleDesc	indexdesc;
 
+	int table_to_process;
+	table_to_process = 1;
+
 	AssertVariableIsOfType(&pg_decode_change, LogicalDecodeChangeCB);
 
 	data = ctx->output_plugin_private;
@@ -673,9 +738,6 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 
 	/* Avoid leaking memory by using and resetting our own context */
 	old = MemoryContextSwitchTo(data->context);
-
-	if (data->write_in_chunks)
-		OutputPluginPrepareWrite(ctx, true);
 
 	/* Make sure rd_replidindex is set */
 	RelationGetIndexList(relation);
@@ -742,9 +804,27 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 			Assert(false);
 	}
 
-	/* Change counter */
-	data->nr_changes++;
+	//check if process tables
+	table_to_process = check_tables(ctx, get_namespace_name(class_form->relnamespace), NameStr(class_form->relname));
+ 	if (table_to_process == 1)
+	{
+		//Prepare Json's header
+		if(!data->is_writed_header)
+		{
+			//Write json's Header
+			if (data->write_in_chunks)
+				OutputPluginWrite(ctx, true);
 
+			data->is_writed_header = true;
+		}
+
+		/* Change counter */
+		data->nr_changes++;
+
+		if (data->write_in_chunks)
+			OutputPluginPrepareWrite(ctx, true);
+
+	//---------------
 	/* Change starts */
 	if (data->pretty_print)
 	{
@@ -874,12 +954,18 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 		appendStringInfoString(ctx->out, "\t\t}");
 	else
 		appendStringInfoChar(ctx->out, '}');
+	}
+	//End check tables.
+	//---------------
 
 	MemoryContextSwitchTo(old);
 	MemoryContextReset(data->context);
 
-	if (data->write_in_chunks)
-		OutputPluginWrite(ctx, true);
+	if (table_to_process == 1)
+	{
+		if (data->write_in_chunks)
+			OutputPluginWrite(ctx, true);
+	}
 }
 
 #if	PG_VERSION_NUM >= 90600
@@ -994,3 +1080,40 @@ pg_decode_message(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 		OutputPluginWrite(ctx, true);
 }
 #endif
+
+/*
+* Check if schema name and table name is passed by params.
+* Format: schema_name.table_name,
+*/
+static
+int check_tables(LogicalDecodingContext *ctx, char *schema_name, char *table_name)
+{
+	JsonDecodingData *data = ctx->output_plugin_private;
+	int i = strlen(schema_name)+strlen(table_name)+2;
+	char s[i];
+
+	if( data->filter_tables==NULL )
+	{
+		elog(DEBUG1, "check_tables :: ALL");
+		return 1;
+	}
+
+	strcpy(s, schema_name);
+	strcat(s, ".");
+	strcat(s, table_name);
+	strcat(s, ",");
+
+	elog(DEBUG1, "Params From Query: \"%s\"", data->filter_tables);
+	elog(DEBUG1, "Table Name Procesed: \"%s\"", s);
+
+	if( strstr (data->filter_tables, s) != NULL)
+	{
+		elog(DEBUG1, "check_tables :: table_name IN paramas");
+		return 1;
+	}
+	else
+	{
+		elog(DEBUG1, "check_tables :: table_name NOT in paramas");
+		return 0;
+	}
+}

@@ -54,6 +54,31 @@ max_replication_slots = 1
 
 After changing these parameters, a restart is needed.
 
+Parameters
+==========
+
+Parameters list supported:
+
+```
+| Parameter Name    | Values  | Default  |
+|-------------------|---------|----------|
+| include-xids      | 1 / 0   | 1        |
+| filter-tables     | String  | Empty    |
+| force-toast-table | 1 / 0   | 1        |
+| include-timestamp | 1 / 0   | 1        |
+| include-schemas   | 1 / 0   | 1        |
+| include-types     | 1 / 0   | 1        |
+| pretty-print      | 1 / 0   | 0        |
+| write-in-chunks   | 1 / 0   | 0        |
+| include-lsn       | 1 / 0   | 0        |
+
+Sample "filter-tables": 
+	SELECT data FROM pg_logical_slot_get_changes('test_slot', NULL, NULL, 'filter-tables', 'schema-name_1.table_1,schema-name_2.table_2,');
+
+Note:
+	Every table is splitted with comma (with final comma).
+```
+
 Examples
 ========
 
