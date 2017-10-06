@@ -459,7 +459,11 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 		char				*outputstr = NULL;
 		bool				isnull;		/* column is null? */
 
+#if PG_VERSION_NUM >= 110000
+		attr = TupleDescAttr(tupdesc, natt);
+#else
 		attr = tupdesc->attrs[natt];
+#endif
 
 		elog(DEBUG1, "attribute \"%s\" (%d/%d)", NameStr(attr->attname), natt, tupdesc->natts);
 
@@ -475,7 +479,15 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 
 			for (j = 0; j < indexdesc->natts; j++)
 			{
-				if (strcmp(NameStr(attr->attname), NameStr(indexdesc->attrs[j]->attname)) == 0)
+				Form_pg_attribute indexattr;
+
+#if PG_VERSION_NUM >= 110000
+				indexattr = TupleDescAttr(indexdesc, j);
+#else
+				indexattr = indexdesc->attrs[j];
+#endif
+
+				if (strcmp(NameStr(attr->attname), NameStr(indexattr->attname)) == 0)
 					found_col = true;
 			}
 
