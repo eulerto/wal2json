@@ -36,6 +36,7 @@ typedef struct
 	bool		include_schemas;	/* qualify tables */
 	bool		include_types;		/* include data types */
 	bool		include_typmod;		/* include typmod in types */
+	bool 		types_use_oid;		/* transmit OIDs instead of names for types and modifiers */
 
 	bool		pretty_print;		/* pretty-print JSON? */
 	bool		write_in_chunks;	/* write in chunks? */
@@ -106,6 +107,7 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 	data->include_schemas = true;
 	data->include_types = true;
 	data->include_typmod = true;
+	data->types_use_oid = false;
 	data->pretty_print = false;
 	data->write_in_chunks = false;
 	data->include_lsn = false;
@@ -183,6 +185,19 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 				data->include_typmod = true;
 			}
 			else if (!parse_bool(strVal(elem->arg), &data->include_typmod))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
+							 strVal(elem->arg), elem->defname)));
+		}
+		else if (strcmp(elem->defname, "types-use-oid") == 0)
+		{
+			if (elem->arg == NULL)
+			{
+				elog(LOG, "itypes-use-oid argument is null");
+				data->types_use_oid = false;
+			}
+			else if (!parse_bool(strVal(elem->arg), &data->types_use_oid))
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
@@ -534,18 +549,32 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 
 		if (data->include_types)
 		{
-			if (data->include_typmod)
+			if (data->types_use_oid)
 			{
-				char	*type_str;
-
-				type_str = TextDatumGetCString(DirectFunctionCall2(format_type, attr->atttypid, attr->atttypmod));
-				appendStringInfo(&coltypes, "%s\"%s\"", comma, type_str);
-				pfree(type_str);
+				if (data->include_typmod)
+				{
+					appendStringInfo(&coltypes, "%s[%u,%d]", comma, attr->atttypid, attr->atttypmod);
+				}
+				else
+				{
+					appendStringInfo(&coltypes, "%s%u", comma, attr->atttypid);
+				}
 			}
 			else
 			{
-				Form_pg_type type_form = (Form_pg_type) GETSTRUCT(type_tuple);
-				appendStringInfo(&coltypes, "%s\"%s\"", comma, NameStr(type_form->typname));
+				if (data->include_typmod)
+				{
+					char	*type_str;
+
+					type_str = TextDatumGetCString(DirectFunctionCall2(format_type, attr->atttypid, attr->atttypmod));
+					appendStringInfo(&coltypes, "%s\"%s\"", comma, type_str);
+					pfree(type_str);
+				}
+				else
+				{
+					Form_pg_type type_form = (Form_pg_type) GETSTRUCT(type_tuple);
+					appendStringInfo(&coltypes, "%s\"%s\"", comma, NameStr(type_form->typname));
+				}
 			}
 		}
 
