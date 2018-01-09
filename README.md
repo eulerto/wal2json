@@ -1,5 +1,3 @@
-[![Coverity Scan Build Status](https://scan.coverity.com/projects/4832/badge.svg)](https://scan.coverity.com/projects/wal2json)
-
 Introduction
 ============
 
@@ -71,6 +69,9 @@ Parameters list supported:
 | pretty-print      | 1 / 0   | 0        |
 | write-in-chunks   | 1 / 0   | 0        |
 | include-lsn       | 1 / 0   | 0        |
+| include-not-null  | 1 / 0   | 1        |
+| include-typmod    | 1 / 0   | 1        |
+| include-type-oids | 1 / 0   | 1        |
 
 Sample "filter-tables": 
 	SELECT data FROM pg_logical_slot_get_changes('test_slot', NULL, NULL, 'filter-tables', 'schema-name_1.table_1,schema-name_2.table_2,');

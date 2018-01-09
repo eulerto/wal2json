@@ -6,6 +6,7 @@ LOAD 'test_decoding';
 -- predictability
 SET synchronous_commit = on;
 
+DROP TABLE IF EXISTS table_with_pk;
 CREATE TABLE table_with_pk (
 a	smallserial,
 b	smallint,
@@ -26,6 +27,7 @@ p	tsvector,
 PRIMARY KEY(b, c, d)
 );
 
+DROP TABLE IF EXISTS table_without_pk;
 CREATE TABLE table_without_pk (
 a	smallserial,
 b	smallint,
@@ -45,6 +47,7 @@ o	json,
 p	tsvector
 );
 
+DROP TABLE IF EXISTS table_with_unique;
 CREATE TABLE table_with_unique (
 a	smallserial,
 b	smallint,
@@ -74,5 +77,5 @@ INSERT INTO table_without_pk (b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) VALUE
 INSERT INTO table_with_unique (b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) VALUES(1, 2, 3, 3.54, 876.563452345, 1.23, 'teste', 'testando', 'um texto longo', B'001110010101010', '2013-11-02 17:30:52', '2013-02-04', true, '{ "a": 123 }', 'Old Old Parr'::tsvector);
 COMMIT;
 
-SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pretty-print', '1');
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pretty-print', '1', 'include-typmod', '0');
 SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');

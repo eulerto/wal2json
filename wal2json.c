@@ -12,32 +12,20 @@
  */
 #include "postgres.h"
 
-#include "access/sysattr.h"
-
-#include "catalog/pg_class.h"
 #include "catalog/pg_type.h"
-#include "catalog/index.h"
 
-#include "nodes/parsenodes.h"
-
-#include "replication/output_plugin.h"
 #include "replication/logical.h"
-#if	PG_VERSION_NUM >= 90600
-#include "replication/message.h"
-#endif
 
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/pg_lsn.h"
 #include "utils/rel.h"
-#include "utils/relcache.h"
 #include "utils/syscache.h"
-#include "utils/typcache.h"
 
 PG_MODULE_MAGIC;
 
-char *VER = "1.5.2";
+char *VER = "1.6.2";
 
 extern void		_PG_init(void);
 extern void		_PG_output_plugin_init(OutputPluginCallbacks *cb);
@@ -49,12 +37,14 @@ typedef struct
 	bool		include_timestamp;	/* include transaction timestamp */
 	bool		include_schemas;	/* qualify tables */
 	bool		include_types;		/* include data types */
+	bool		include_type_oids;	/* include data type oids */
+	bool		include_typmod;		/* include typmod in types */
+	bool		include_not_null;	/* include not-null constraints */
 
 	bool		pretty_print;		/* pretty-print JSON? */
 	bool		write_in_chunks;	/* write in chunks? */
 	char		*filter_tables;		/* filter tables */
 	bool		force_TOAST_table;	/* force output TOAST content table */
-
 	bool 		is_writed_header;
 
 	/*
@@ -123,20 +113,22 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 
 	data = palloc0(sizeof(JsonDecodingData));
 	data->context = AllocSetContextCreate(TopMemoryContext,
-										"text conversion context",
+										"wal2json output context",
 										ALLOCSET_DEFAULT_MINSIZE,
 										ALLOCSET_DEFAULT_INITSIZE,
 										ALLOCSET_DEFAULT_MAXSIZE);
 	data->include_xids = false;
-	data->include_timestamp = true;
+	data->include_timestamp = false;
 	data->include_schemas = true;
 	data->include_types = true;
+	data->include_type_oids = false;
+	data->include_typmod = true;
 	data->pretty_print = false;
 	data->write_in_chunks = false;
 	data->include_lsn = false;
+	data->include_not_null = false;
 	data->filter_tables = NULL;
-	data->force_TOAST_table = true;
-
+	data->force_TOAST_table = false;
 	data->is_writed_header = false;
 
 	data->nr_changes = 0;
@@ -170,7 +162,7 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 			if (elem->arg == NULL)
 			{
 				elog(LOG, "include-timestamp argument is null");
-				data->include_timestamp = true;
+				data->include_timestamp = false;
 			}
 			else if (!parse_bool(strVal(elem->arg), &data->include_timestamp))
 				ereport(ERROR,
@@ -199,6 +191,45 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 				data->include_types = true;
 			}
 			else if (!parse_bool(strVal(elem->arg), &data->include_types))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
+							 strVal(elem->arg), elem->defname)));
+		}
+		else if (strcmp(elem->defname, "include-type-oids") == 0)
+		{
+			if (elem->arg == NULL)
+			{
+				elog(LOG, "include-type-oids argument is null");
+				data->include_type_oids = true;
+			}
+			else if (!parse_bool(strVal(elem->arg), &data->include_type_oids))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
+							 strVal(elem->arg), elem->defname)));
+		}
+		else if (strcmp(elem->defname, "include-typmod") == 0)
+		{
+			if (elem->arg == NULL)
+			{
+				elog(LOG, "include-typmod argument is null");
+				data->include_typmod = true;
+			}
+			else if (!parse_bool(strVal(elem->arg), &data->include_typmod))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
+							 strVal(elem->arg), elem->defname)));
+		}
+		else if (strcmp(elem->defname, "include-not-null") == 0)
+		{
+			if (elem->arg == NULL)
+			{
+				elog(LOG, "include-not-null argument is null");
+				data->include_not_null = true;
+			}
+			else if (!parse_bool(strVal(elem->arg), &data->include_not_null))
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
@@ -263,8 +294,8 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 			/* If option does not provide a value, it means its value is true */
 			if (elem->arg == NULL)
 			{
-				elog(LOG, "include-xids argument is null");
-				data->force_TOAST_table = true;
+				elog(LOG, "force-toast-table argument is null");
+				data->force_TOAST_table = false;
 			}
 			else if (!parse_bool(strVal(elem->arg), &data->force_TOAST_table))
 				ereport(ERROR,
@@ -457,14 +488,20 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 
 	StringInfoData		colnames;
 	StringInfoData		coltypes;
+	StringInfoData		coltypeoids;
+	StringInfoData		colnotnulls;
 	StringInfoData		colvalues;
 	char				*comma = "";
 
+	data = ctx->output_plugin_private;
+
 	initStringInfo(&colnames);
 	initStringInfo(&coltypes);
+	if (data->include_type_oids)
+		initStringInfo(&coltypeoids);
+	if (data->include_not_null)
+		initStringInfo(&colnotnulls);
 	initStringInfo(&colvalues);
-
-	data = ctx->output_plugin_private;
 
 	/*
 	 * If replident is true, it will output info about replica identity. In this
@@ -478,6 +515,8 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 			appendStringInfoString(&colnames, "\t\t\t\"oldkeys\": {\n");
 			appendStringInfoString(&colnames, "\t\t\t\t\"keynames\": [");
 			appendStringInfoString(&coltypes, "\t\t\t\t\"keytypes\": [");
+			if (data->include_type_oids)
+				appendStringInfoString(&coltypeoids, "\t\t\t\"keytypeoids\": [");
 			appendStringInfoString(&colvalues, "\t\t\t\t\"keyvalues\": [");
 		}
 		else
@@ -485,6 +524,8 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 			appendStringInfoString(&colnames, "\"oldkeys\":{");
 			appendStringInfoString(&colnames, "\"keynames\":[");
 			appendStringInfoString(&coltypes, "\"keytypes\":[");
+			if (data->include_type_oids)
+				appendStringInfoString(&coltypeoids, "\"keytypeoids\": [");
 			appendStringInfoString(&colvalues, "\"keyvalues\":[");
 		}
 	}
@@ -494,12 +535,20 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 		{
 			appendStringInfoString(&colnames, "\t\t\t\"columnnames\": [");
 			appendStringInfoString(&coltypes, "\t\t\t\"columntypes\": [");
+			if (data->include_type_oids)
+				appendStringInfoString(&coltypeoids, "\t\t\t\"columntypeoids\": [");
+			if (data->include_not_null)
+				appendStringInfoString(&colnotnulls, "\t\t\t\"columnoptionals\": [");
 			appendStringInfoString(&colvalues, "\t\t\t\"columnvalues\": [");
 		}
 		else
 		{
 			appendStringInfoString(&colnames, "\"columnnames\":[");
 			appendStringInfoString(&coltypes, "\"columntypes\":[");
+			if (data->include_type_oids)
+				appendStringInfoString(&coltypeoids, "\"columntypeoids\": [");
+			if (data->include_not_null)
+				appendStringInfoString(&colnotnulls, "\"columnoptionals\": [");
 			appendStringInfoString(&colvalues, "\"columnvalues\":[");
 		}
 	}
@@ -510,7 +559,6 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 		Form_pg_attribute	attr;		/* the attribute itself */
 		Oid					typid;		/* type of current attribute */
 		HeapTuple			type_tuple;	/* information about a type */
-		Form_pg_type		type_form;
 		Oid					typoutput;	/* output function */
 		bool				typisvarlena;
 		Datum				origval;	/* possibly toasted Datum */
@@ -518,7 +566,16 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 		char				*outputstr = NULL;
 		bool				isnull;		/* column is null? */
 
+		/*
+		 * Commit d34a74dd064af959acd9040446925d9d53dff15b introduced
+		 * TupleDescAttr() in back branches. If the version supports
+		 * this macro, use it. Version 10 and later already support it.
+		 */
+#if (PG_VERSION_NUM >= 90600 && PG_VERSION_NUM < 90605) || (PG_VERSION_NUM >= 90500 && PG_VERSION_NUM < 90509) || (PG_VERSION_NUM >= 90400 && PG_VERSION_NUM < 90414)
 		attr = tupdesc->attrs[natt];
+#else
+		attr = TupleDescAttr(tupdesc, natt);
+#endif
 
 		elog(DEBUG1, "attribute \"%s\" (%d/%d)", NameStr(attr->attname), natt, tupdesc->natts);
 
@@ -534,8 +591,18 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 
 			for (j = 0; j < indexdesc->natts; j++)
 			{
-				if (strcmp(NameStr(attr->attname), NameStr(indexdesc->attrs[j]->attname)) == 0)
+				Form_pg_attribute	iattr;
+
+				/* See explanation a few lines above. */
+#if (PG_VERSION_NUM >= 90600 && PG_VERSION_NUM < 90605) || (PG_VERSION_NUM >= 90500 && PG_VERSION_NUM < 90509) || (PG_VERSION_NUM >= 90400 && PG_VERSION_NUM < 90414)
+				iattr = indexdesc->attrs[j];
+#else
+				iattr = TupleDescAttr(indexdesc, j);
+#endif
+
+				if (strcmp(NameStr(attr->attname), NameStr(iattr->attname)) == 0)
 					found_col = true;
+
 			}
 
 			/* Print only indexed columns */
@@ -549,7 +616,6 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 		type_tuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(typid));
 		if (!HeapTupleIsValid(type_tuple))
 			elog(ERROR, "cache lookup failed for type %u", typid);
-		type_form = (Form_pg_type) GETSTRUCT(type_tuple);
 
 		/* Get information needed for printing values of a type */
 		getTypeOutputInfo(typid, &typoutput, &typisvarlena);
@@ -563,6 +629,7 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 
 		/* XXX Unchanged TOAST Datum does not need to be output */
 		/* Force extract record from TOAST tables */
+		/* TODO :: investigate because on deletion, there is a return error */
 		if (!isnull && typisvarlena && VARATT_IS_EXTERNAL_ONDISK(origval) && !data->force_TOAST_table)
 		{
 			elog(WARNING, "column \"%s\" has an unchanged TOAST", NameStr(attr->attname));
@@ -573,7 +640,33 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 		appendStringInfo(&colnames, "%s\"%s\"", comma, NameStr(attr->attname));
 
 		if (data->include_types)
-			appendStringInfo(&coltypes, "%s\"%s\"", comma, NameStr(type_form->typname));
+		{
+			if (data->include_typmod)
+			{
+				char	*type_str;
+
+				type_str = TextDatumGetCString(DirectFunctionCall2(format_type, attr->atttypid, attr->atttypmod));
+				appendStringInfo(&coltypes, "%s\"%s\"", comma, type_str);
+				pfree(type_str);
+			}
+			else
+			{
+				Form_pg_type type_form = (Form_pg_type) GETSTRUCT(type_tuple);
+				appendStringInfo(&coltypes, "%s\"%s\"", comma, NameStr(type_form->typname));
+			}
+
+			/* oldkeys doesn't print not-null constraints */
+			if (!replident && data->include_not_null)
+			{
+				if (attr->attnotnull)
+					appendStringInfo(&colnotnulls, "%sfalse", comma);
+				else
+					appendStringInfo(&colnotnulls, "%strue", comma);
+			}
+		}
+
+		if (data->include_type_oids)
+			appendStringInfo(&coltypeoids, "%s%u", comma, typid);
 
 		ReleaseSysCache(type_tuple);
 
@@ -590,8 +683,6 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 
 			/* Finally got the value */
 			outputstr = OidOutputFunctionCall(typoutput, val);
-
-			//elog(LOG, "typid \"%s\" :: \"%d\"", NameStr(type_form->typname), typid );
 
 			/*
 			 * Data types are printed with quotes unless they are number, true,
@@ -652,6 +743,8 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 			appendStringInfoString(&colnames, "],\n");
 			if (data->include_types)
 				appendStringInfoString(&coltypes, "],\n");
+			if (data->include_type_oids)
+				appendStringInfoString(&coltypeoids, "],\n");
 			appendStringInfoString(&colvalues, "]\n");
 			appendStringInfoString(&colvalues, "\t\t\t}\n");
 		}
@@ -660,6 +753,8 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 			appendStringInfoString(&colnames, "],");
 			if (data->include_types)
 				appendStringInfoString(&coltypes, "],");
+			if (data->include_type_oids)
+				appendStringInfoString(&coltypeoids, "],");
 			appendStringInfoChar(&colvalues, ']');
 			appendStringInfoChar(&colvalues, '}');
 		}
@@ -671,6 +766,10 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 			appendStringInfoString(&colnames, "],\n");
 			if (data->include_types)
 				appendStringInfoString(&coltypes, "],\n");
+			if (data->include_type_oids)
+				appendStringInfoString(&coltypeoids, "],\n");
+			if (data->include_not_null)
+				appendStringInfoString(&colnotnulls, "],\n");
 			if (hasreplident)
 				appendStringInfoString(&colvalues, "],\n");
 			else
@@ -681,6 +780,10 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 			appendStringInfoString(&colnames, "],");
 			if (data->include_types)
 				appendStringInfoString(&coltypes, "],");
+			if (data->include_type_oids)
+				appendStringInfoString(&coltypeoids, "],");
+			if (data->include_not_null)
+				appendStringInfoString(&colnotnulls, "],");
 			if (hasreplident)
 				appendStringInfoString(&colvalues, "],");
 			else
@@ -692,10 +795,18 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 	appendStringInfoString(ctx->out, colnames.data);
 	if (data->include_types)
 		appendStringInfoString(ctx->out, coltypes.data);
+	if (data->include_type_oids)
+		appendStringInfoString(ctx->out, coltypeoids.data);
+	if (data->include_not_null)
+		appendStringInfoString(ctx->out, colnotnulls.data);
 	appendStringInfoString(ctx->out, colvalues.data);
 
 	pfree(colnames.data);
 	pfree(coltypes.data);
+	if (data->include_type_oids)
+		pfree(coltypeoids.data);
+	if (data->include_not_null)
+		pfree(colnotnulls.data);
 	pfree(colvalues.data);
 }
 
@@ -738,6 +849,10 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 
 	/* Avoid leaking memory by using and resetting our own context */
 	old = MemoryContextSwitchTo(data->context);
+        
+	//Dismissed
+	//if (data->write_in_chunks)
+	//	OutputPluginPrepareWrite(ctx, true);
 
 	/* Make sure rd_replidindex is set */
 	RelationGetIndexList(relation);
@@ -1058,11 +1173,11 @@ pg_decode_message(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 		else
 			appendStringInfoString(ctx->out, "\"transactional\":false,");
 
-		appendStringInfo(ctx->out, "\"prefix\":");
-		quote_escape_json(ctx->out, prefix);
+		appendStringInfo(ctx->out, "\"prefix\":\"%s\"", prefix);
 		appendStringInfoChar(ctx->out, ',');
-		appendStringInfoString(ctx->out, "\"content\":");
-		quote_escape_json(ctx->out, content);
+		appendStringInfoString(ctx->out, "\"content\":\"");
+		appendBinaryStringInfo(ctx->out, content, content_size);
+		appendStringInfoChar(ctx->out, '"');
 		appendStringInfoChar(ctx->out, '}');
 
 		/* build a complete JSON object for non-transactional message */
@@ -1117,3 +1232,4 @@ int check_tables(LogicalDecodingContext *ctx, char *schema_name, char *table_nam
 		return 0;
 	}
 }
+

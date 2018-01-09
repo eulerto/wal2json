@@ -35,13 +35,9 @@ ALTER TABLE table_with_unique REPLICA IDENTITY USING INDEX table_with_unique_g_n
 DELETE FROM table_with_unique WHERE b = 1;
 DELETE FROM table_with_unique WHERE n = true;
 ALTER TABLE table_with_unique REPLICA IDENTITY DEFAULT;
-SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pretty-print', '1');
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pretty-print', '1', 'include-typmod', '0');
                               data                               
 -----------------------------------------------------------------
- {                                                              +
-         "change": [                                            +
-         ]                                                      +
- }
  {                                                              +
          "change": [                                            +
                  {                                              +
@@ -70,11 +66,7 @@ SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pre
                  }                                              +
          ]                                                      +
  }
- {                                                              +
-         "change": [                                            +
-         ]                                                      +
- }
-(4 rows)
+(2 rows)
 
 SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
  ?column? 

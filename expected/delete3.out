@@ -82,13 +82,9 @@ ALTER TABLE table_without_pk REPLICA IDENTITY DEFAULT;
 ALTER TABLE table_with_unique REPLICA IDENTITY FULL;
 DELETE FROM table_with_unique WHERE b = 1;
 ALTER TABLE table_with_unique REPLICA IDENTITY DEFAULT;
-SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pretty-print', '1');
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pretty-print', '1', 'include-typmod', '0');
                                                                                                                data                                                                                                               
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {                                                                                                                                                                                                                               +
-         "change": [                                                                                                                                                                                                             +
-         ]                                                                                                                                                                                                                       +
- }
  {                                                                                                                                                                                                                               +
          "change": [                                                                                                                                                                                                             +
                  {                                                                                                                                                                                                               +
@@ -119,14 +115,6 @@ SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pre
  }
  {                                                                                                                                                                                                                               +
          "change": [                                                                                                                                                                                                             +
-         ]                                                                                                                                                                                                                       +
- }
- {                                                                                                                                                                                                                               +
-         "change": [                                                                                                                                                                                                             +
-         ]                                                                                                                                                                                                                       +
- }
- {                                                                                                                                                                                                                               +
-         "change": [                                                                                                                                                                                                             +
                  {                                                                                                                                                                                                               +
                          "kind": "delete",                                                                                                                                                                                       +
                          "schema": "public",                                                                                                                                                                                     +
@@ -137,14 +125,6 @@ SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pre
                                  "keyvalues": [1, 1, 2, 3, 3.540, 876.563, 1.23, "teste     ", "testando", "um texto longo", "001110010101010", "Sat Nov 02 17:30:52 2013", "02-04-2013", true, "{ \"a\": 123 }", "'Old' 'Parr'"]+
                          }                                                                                                                                                                                                       +
                  }                                                                                                                                                                                                               +
-         ]                                                                                                                                                                                                                       +
- }
- {                                                                                                                                                                                                                               +
-         "change": [                                                                                                                                                                                                             +
-         ]                                                                                                                                                                                                                       +
- }
- {                                                                                                                                                                                                                               +
-         "change": [                                                                                                                                                                                                             +
          ]                                                                                                                                                                                                                       +
  }
  {                                                                                                                                                                                                                               +
@@ -161,11 +141,7 @@ SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pre
                  }                                                                                                                                                                                                               +
          ]                                                                                                                                                                                                                       +
  }
- {                                                                                                                                                                                                                               +
-         "change": [                                                                                                                                                                                                             +
-         ]                                                                                                                                                                                                                       +
- }
-(10 rows)
+(4 rows)
 
 SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
  ?column? 
