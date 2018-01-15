@@ -48,8 +48,11 @@ typedef struct
 	 */
 	bool		include_lsn;		/* include LSNs */
 
+	char 		*filter_tables;
+	bool		has_transaction;
+
 	uint64		nr_changes;			/* # of passes in pg_decode_change() */
-									/* FIXME replace with txn->nentries */
+									/* FIXME replace with txn->nentries */						
 } JsonDecodingData;
 
 /* These must be available to pg_dlsym() */
@@ -90,6 +93,31 @@ _PG_output_plugin_init(OutputPluginCallbacks *cb)
 #endif
 }
 
+int 
+relation_is_allowed(char *relation, char *constraints) 
+{
+	char *c;
+	char *r;
+	char *currentToken;
+	int i;
+
+	if(constraints==NULL) return 1;
+
+	c=strdup(constraints);
+	r=strdup(relation);
+
+	for(i = 0; c[i]; i++){c[i] = tolower(c[i]);}
+	for(i = 0; r[i]; i++){r[i] = tolower(r[i]);}
+
+	currentToken = strtok(c, ",");
+	while(currentToken != NULL) {
+		if(strcmp(r, currentToken)==0) return 1;
+
+		currentToken = strtok(NULL, ","); // get next token
+	}
+	return 0;
+}
+
 /* Initialize this plugin */
 static void
 pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is_init)
@@ -113,6 +141,7 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 	data->write_in_chunks = false;
 	data->include_lsn = false;
 	data->include_not_null = false;
+	data->has_transaction = false;
 
 	data->nr_changes = 0;
 
@@ -257,6 +286,18 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
 							 strVal(elem->arg), elem->defname)));
 		}
+		else if (strcmp(elem->defname, "filter-tables") == 0)
+		{
+			if (elem->arg == NULL)
+			{
+				elog(LOG, "filter-tables argument is null");
+				data->filter_tables = NULL;
+			}
+			else
+			{
+				data->filter_tables = strVal(elem->arg);
+			}
+		}
 		else
 		{
 			ereport(ERROR,
@@ -266,6 +307,8 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 						elem->arg ? strVal(elem->arg) : "(null)")));
 		}
 	}
+	if (data->filter_tables != NULL)
+		data->write_in_chunks = false;
 }
 
 /* cleanup this plugin's resources */
@@ -338,6 +381,8 @@ pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 {
 	JsonDecodingData *data = ctx->output_plugin_private;
 
+	if (!data->has_transaction) return;
+
 	if (txn->has_catalog_changes)
 		elog(DEBUG1, "txn has catalog changes: yes");
 	else
@@ -363,6 +408,8 @@ pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	}
 
 	OutputPluginWrite(ctx, true);
+
+	data->has_transaction = false;
 }
 
 /*
@@ -785,6 +832,10 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	class_form = RelationGetForm(relation);
 	tupdesc = RelationGetDescr(relation);
 
+	if (!relation_is_allowed(NameStr(class_form->relname), data->filter_tables)) return;
+
+	data->has_transaction = true;
+	
 	/* Avoid leaking memory by using and resetting our own context */
 	old = MemoryContextSwitchTo(data->context);
 
