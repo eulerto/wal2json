@@ -48,8 +48,13 @@ typedef struct
 	 */
 	bool		include_lsn;		/* include LSNs */
 
+	char 		*filter_schema;
+	char 		*filter_table; 
+	
+	bool		has_transaction;
+
 	uint64		nr_changes;			/* # of passes in pg_decode_change() */
-									/* FIXME replace with txn->nentries */
+									/* FIXME replace with txn->nentries */						
 } JsonDecodingData;
 
 /* These must be available to pg_dlsym() */
@@ -68,6 +73,7 @@ static void pg_decode_message(LogicalDecodingContext *ctx,
 					bool transactional, const char *prefix,
 					Size content_size, const char *content);
 #endif
+int should_process_change(Form_pg_class class_form, JsonDecodingData *data);
 
 void
 _PG_init(void)
@@ -88,6 +94,21 @@ _PG_output_plugin_init(OutputPluginCallbacks *cb)
 #if	PG_VERSION_NUM >= 90600
 	cb->message_cb = pg_decode_message;
 #endif
+}
+
+int 
+should_process_change(Form_pg_class class_form, JsonDecodingData *data) 
+{
+	char *table_name = NameStr(class_form->relname);
+	char *schema_name = get_namespace_name(class_form->relnamespace);
+	char *filter_table = data->filter_table;
+	char *filter_schema = data->filter_schema;
+
+	if (filter_schema == NULL) return 1;
+
+	if ((strcmp(table_name, filter_table) == 0) && (strcmp(schema_name, filter_schema) == 0)) return 1;
+
+	return 0;
 }
 
 /* Initialize this plugin */
@@ -118,6 +139,7 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 	data->write_in_chunks = false;
 	data->include_lsn = false;
 	data->include_not_null = false;
+	data->has_transaction = false;
 
 	data->nr_changes = 0;
 
@@ -262,6 +284,26 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
 							 strVal(elem->arg), elem->defname)));
 		}
+		else if (strcmp(elem->defname, "filter-table") == 0)
+		{
+			if (elem->arg == NULL)
+			{
+				elog(LOG, "filter-table argument is null");
+				data->filter_schema = NULL;
+				data->filter_table = NULL;
+			}
+			else
+			{
+				char *arg = strdup(strVal(elem->arg));
+				data->filter_schema = strtok(arg, ".");
+				data->filter_table = strtok(NULL, ".");
+				if (data->filter_schema == NULL || data->filter_table == NULL)
+					ereport(ERROR,
+							(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+							errmsg("could not parse value \"%s\" for parameter \"%s\"",
+								strVal(elem->arg), elem->defname)));
+			}
+		}
 		else
 		{
 			ereport(ERROR,
@@ -271,6 +313,8 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 						elem->arg ? strVal(elem->arg) : "(null)")));
 		}
 	}
+	if (data->filter_table != NULL)
+		data->write_in_chunks = false;
 }
 
 /* cleanup this plugin's resources */
@@ -343,6 +387,8 @@ pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 {
 	JsonDecodingData *data = ctx->output_plugin_private;
 
+	if (!data->has_transaction) return;
+
 	if (txn->has_catalog_changes)
 		elog(DEBUG1, "txn has catalog changes: yes");
 	else
@@ -368,6 +414,8 @@ pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	}
 
 	OutputPluginWrite(ctx, true);
+
+	data->has_transaction = false;
 }
 
 /*
@@ -790,6 +838,10 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	class_form = RelationGetForm(relation);
 	tupdesc = RelationGetDescr(relation);
 
+	if (!should_process_change(class_form, data)) return;
+
+	data->has_transaction = true;
+	
 	/* Avoid leaking memory by using and resetting our own context */
 	old = MemoryContextSwitchTo(data->context);
 
