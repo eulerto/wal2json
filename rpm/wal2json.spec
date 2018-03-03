@@ -1,6 +1,6 @@
 # wal2json
 Name: wal2json
-Version: 1.6.2
+Version: 1.6.3
 Release: 1%{?dist}
 Summary: PostgreSQL output plugin Wal2Json
 Vendor: Subito srl
