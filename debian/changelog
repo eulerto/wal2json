@@ -1,4 +1,4 @@
-postgresql-wal2json (1.0.0-1linz~trusty1) trusty; urgency=medium
+postgresql-wal2json (1.0.0-1) unstable; urgency=medium
 
   * Initial release
 
