@@ -53,6 +53,13 @@ typedef struct
 	 */
 	bool		include_lsn;		/* include LSNs */
 
+	/*
+	 * Opt into alternate output format that is easier to parse
+	 * for large transactions by breaking messages into multiple
+	 * json records. It is an alternative to write_in_chunks
+	 */
+	bool		msg_per_record;
+
 	uint64		nr_changes;			/* # of passes in pg_decode_change() */
 									/* FIXME replace with txn->nentries */
 } JsonDecodingData;
@@ -84,6 +91,8 @@ static void pg_decode_message(LogicalDecodingContext *ctx,
 
 static bool parse_table_identifier(List *qualified_tables, char separator, List **select_tables);
 static bool string_to_SelectTable(char *rawstring, char separator, List **select_tables);
+static void appendStringInfoStringIndent(StringInfo str, int tabCount, const char *s);
+static void appendStringInfoIndent(StringInfo str, int tabCount);
 
 void
 _PG_init(void)
@@ -137,6 +146,7 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 	data->include_not_null = false;
 	data->include_unchanged_toast = true;
 	data->filter_tables = NIL;
+	data->msg_per_record = false;
 
 	/* add all tables in all schemas by default */
 	t = palloc0(sizeof(SelectTable));
@@ -300,6 +310,24 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
 							 strVal(elem->arg), elem->defname)));
 		}
+		else if (strcmp(elem->defname, "msg-per-record") == 0)
+		{
+			if (elem->arg == NULL)
+			{
+				elog(LOG, "msg-per-record is null");
+				data->msg_per_record = true;
+				data->include_xids = true;
+			}
+			else
+			{
+				data->include_xids = true;
+				if (!parse_bool(strVal(elem->arg), &data->msg_per_record))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
+							 strVal(elem->arg), elem->defname)));
+			}
+		}
 		else if (strcmp(elem->defname, "filter-tables") == 0)
 		{
 			char	*rawstr;
@@ -388,6 +416,13 @@ pg_decode_begin_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 	else
 		appendStringInfoCharMacro(ctx->out, '{');
 
+
+	if (data->msg_per_record) {
+		if (data->pretty_print)
+			appendStringInfoString(ctx->out, "\t\"kind\": \"begin\",\n");
+		else
+			appendStringInfoString(ctx->out, "\"kind\":\"begin\",");
+	}
 	if (data->include_xids)
 	{
 		if (data->pretty_print)
@@ -416,12 +451,23 @@ pg_decode_begin_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 			appendStringInfo(ctx->out, "\"timestamp\":\"%s\",", timestamptz_to_str(txn->commit_time));
 	}
 
-	if (data->pretty_print)
-		appendStringInfoString(ctx->out, "\t\"change\": [");
-	else
-		appendStringInfoString(ctx->out, "\"change\":[");
 
-	if (data->write_in_chunks)
+	if (data->msg_per_record)
+	{
+		if (data->pretty_print)
+			appendStringInfoString(ctx->out, "\t\"split\": true\n}\n");
+		else
+			appendStringInfoString(ctx->out, "\"split\":true}\n");
+	}
+	else
+	{
+		if (data->pretty_print)
+			appendStringInfoString(ctx->out, "\t\"change\": [");
+		else
+			appendStringInfoString(ctx->out, "\"change\":[");
+	}
+
+	if (data->write_in_chunks || data->msg_per_record)
 		OutputPluginWrite(ctx, true);
 }
 
@@ -440,20 +486,30 @@ pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	elog(DEBUG1, "# of subxacts: %d", txn->nsubtxns);
 
 	/* Transaction ends */
-	if (data->write_in_chunks)
+	if (data->write_in_chunks || data->msg_per_record)
 		OutputPluginPrepareWrite(ctx, true);
 
-	if (data->pretty_print)
+	if (data->msg_per_record)
 	{
-		/* if we don't write in chunks, we need a newline here */
-		if (!data->write_in_chunks)
-			appendStringInfoCharMacro(ctx->out, '\n');
-
-		appendStringInfoString(ctx->out, "\t]\n}");
+		if (data->pretty_print)
+			appendStringInfo(ctx->out, "{\n\t\"kind\": \"commit\",\n\t\"xid\": %u\n}\n", txn->xid);
+		else
+			appendStringInfo(ctx->out, "{\"kind\":\"commit\",\"xid\":%u}\n", txn->xid);
 	}
 	else
 	{
-		appendStringInfoString(ctx->out, "]}");
+		if (data->pretty_print)
+		{
+			/* if we don't write in chunks, we need a newline here */
+			if (!data->write_in_chunks)
+				appendStringInfoCharMacro(ctx->out, '\n');
+
+			appendStringInfoString(ctx->out, "\t]\n}");
+		}
+		else
+		{
+			appendStringInfoString(ctx->out, "]}");
+		}
 	}
 
 	OutputPluginWrite(ctx, true);
@@ -477,9 +533,13 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 	StringInfoData		coltypeoids;
 	StringInfoData		colnotnulls;
 	StringInfoData		colvalues;
-	char				*comma = "";
+	char	 *comma = "";
+	int		 baseTabCount = 3;
 
 	data = ctx->output_plugin_private;
+
+	if (data->msg_per_record)
+		baseTabCount = 1;
 
 	initStringInfo(&colnames);
 	initStringInfo(&coltypes);
@@ -498,12 +558,12 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 	{
 		if (data->pretty_print)
 		{
-			appendStringInfoString(&colnames, "\t\t\t\"oldkeys\": {\n");
-			appendStringInfoString(&colnames, "\t\t\t\t\"keynames\": [");
-			appendStringInfoString(&coltypes, "\t\t\t\t\"keytypes\": [");
+			appendStringInfoStringIndent(&colnames, baseTabCount, "\"oldkeys\": {\n");
+			appendStringInfoStringIndent(&colnames, baseTabCount + 1, "\"keynames\": [");
+			appendStringInfoStringIndent(&coltypes, baseTabCount + 1, "\"keytypes\": [");
 			if (data->include_type_oids)
-				appendStringInfoString(&coltypeoids, "\t\t\t\"keytypeoids\": [");
-			appendStringInfoString(&colvalues, "\t\t\t\t\"keyvalues\": [");
+				appendStringInfoStringIndent(&coltypeoids, baseTabCount, "\"keytypeoids\": [");
+			appendStringInfoStringIndent(&colvalues, baseTabCount + 1, "\"keyvalues\": [");
 		}
 		else
 		{
@@ -519,13 +579,13 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 	{
 		if (data->pretty_print)
 		{
-			appendStringInfoString(&colnames, "\t\t\t\"columnnames\": [");
-			appendStringInfoString(&coltypes, "\t\t\t\"columntypes\": [");
+			appendStringInfoStringIndent(&colnames, baseTabCount, "\"columnnames\": [");
+			appendStringInfoStringIndent(&coltypes, baseTabCount, "\"columntypes\": [");
 			if (data->include_type_oids)
-				appendStringInfoString(&coltypeoids, "\t\t\t\"columntypeoids\": [");
+				appendStringInfoStringIndent(&coltypeoids, baseTabCount,	"\"columntypeoids\": [");
 			if (data->include_not_null)
-				appendStringInfoString(&colnotnulls, "\t\t\t\"columnoptionals\": [");
-			appendStringInfoString(&colvalues, "\t\t\t\"columnvalues\": [");
+				appendStringInfoStringIndent(&colnotnulls, baseTabCount, "\"columnoptionals\": [");
+			appendStringInfoStringIndent(&colvalues, baseTabCount, "\"columnvalues\": [");
 		}
 		else
 		{
@@ -738,7 +798,7 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 			if (data->include_type_oids)
 				appendStringInfoString(&coltypeoids, "],\n");
 			appendStringInfoString(&colvalues, "]\n");
-			appendStringInfoString(&colvalues, "\t\t\t}\n");
+			appendStringInfoStringIndent(&colvalues, baseTabCount, "}\n");
 		}
 		else
 		{
@@ -832,12 +892,18 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 
 	char		*schemaname;
 	char		*tablename;
+	/* Keep track of how many tabs to use depending on options */
+	int			baseTabCount = 2;
 
 	AssertVariableIsOfType(&pg_decode_change, LogicalDecodeChangeCB);
 
 	data = ctx->output_plugin_private;
 	class_form = RelationGetForm(relation);
 	tupdesc = RelationGetDescr(relation);
+
+	/* if we are writing out single row records, we don't want tabs from first level */
+	if (data->msg_per_record)
+		baseTabCount = 0;
 
 	/* Avoid leaking memory by using and resetting our own context */
 	old = MemoryContextSwitchTo(data->context);
@@ -846,7 +912,7 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	schemaname = get_namespace_name(class_form->relnamespace);
 	tablename = NameStr(class_form->relname);
 
-	if (data->write_in_chunks)
+	if (data->write_in_chunks || data->msg_per_record)
 		OutputPluginPrepareWrite(ctx, true);
 
 	/* Make sure rd_replidindex is set */
@@ -967,23 +1033,24 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	/* Change counter */
 	data->nr_changes++;
 
+
 	/* Change starts */
 	if (data->pretty_print)
 	{
 		/* if we don't write in chunks, we need a newline here */
-		if (!data->write_in_chunks)
+		if (!data->write_in_chunks || !data->msg_per_record)
 			appendStringInfoChar(ctx->out, '\n');
 
-		appendStringInfoString(ctx->out, "\t\t");
+		appendStringInfoIndent(ctx->out, baseTabCount);
 
-		if (data->nr_changes > 1)
+		if (data->nr_changes > 1 && !data->msg_per_record)
 			appendStringInfoChar(ctx->out, ',');
 
 		appendStringInfoString(ctx->out, "{\n");
 	}
 	else
 	{
-		if (data->nr_changes > 1)
+		if (data->nr_changes > 1 && !data->msg_per_record)
 			appendStringInfoString(ctx->out, ",{");
 		else
 			appendStringInfoCharMacro(ctx->out, '{');
@@ -994,19 +1061,19 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	{
 		case REORDER_BUFFER_CHANGE_INSERT:
 			if (data->pretty_print)
-				appendStringInfoString(ctx->out, "\t\t\t\"kind\": \"insert\",\n");
+				appendStringInfoStringIndent(ctx->out, baseTabCount + 1, "\"kind\": \"insert\",\n");
 			else
 				appendStringInfoString(ctx->out, "\"kind\":\"insert\",");
 			break;
 		case REORDER_BUFFER_CHANGE_UPDATE:
 			if(data->pretty_print)
-				appendStringInfoString(ctx->out, "\t\t\t\"kind\": \"update\",\n");
+				appendStringInfoStringIndent(ctx->out, baseTabCount + 1, "\"kind\": \"update\",\n");
 			else
 				appendStringInfoString(ctx->out, "\"kind\":\"update\",");
 			break;
 		case REORDER_BUFFER_CHANGE_DELETE:
 			if (data->pretty_print)
-				appendStringInfoString(ctx->out, "\t\t\t\"kind\": \"delete\",\n");
+				appendStringInfoStringIndent(ctx->out, baseTabCount + 1, "\"kind\": \"delete\",\n");
 			else
 				appendStringInfoString(ctx->out, "\"kind\":\"delete\",");
 			break;
@@ -1014,16 +1081,25 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 			Assert(false);
 	}
 
+	/* include xid on every record to make tracking easier */
+	if (data->msg_per_record)
+	{
+		if (data->pretty_print)
+			appendStringInfo(ctx->out, "\t\"xid\": %u,\n", txn->xid);
+		else
+			appendStringInfo(ctx->out, "\"xid\":%u,", txn->xid);
+	}
+
 	/* Print table name (possibly) qualified */
 	if (data->pretty_print)
 	{
 		if (data->include_schemas)
 		{
-			appendStringInfoString(ctx->out, "\t\t\t\"schema\": ");
+			appendStringInfoStringIndent(ctx->out, baseTabCount + 1, "\"schema\": ");
 			escape_json(ctx->out, get_namespace_name(class_form->relnamespace));
 			appendStringInfoString(ctx->out, ",\n");
 		}
-		appendStringInfoString(ctx->out, "\t\t\t\"table\": ");
+		appendStringInfoStringIndent(ctx->out, baseTabCount + 1, "\"table\": ");
 		escape_json(ctx->out, NameStr(class_form->relname));
 		appendStringInfoString(ctx->out, ",\n");
 	}
@@ -1105,14 +1181,17 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	}
 
 	if (data->pretty_print)
-		appendStringInfoString(ctx->out, "\t\t}");
+		appendStringInfoStringIndent(ctx->out, baseTabCount, "}");
 	else
 		appendStringInfoCharMacro(ctx->out, '}');
 
 	MemoryContextSwitchTo(old);
 	MemoryContextReset(data->context);
 
-	if (data->write_in_chunks)
+	if (data->msg_per_record)
+		appendStringInfoCharMacro(ctx->out, '\n');
+
+	if (data->write_in_chunks || data->msg_per_record)
 		OutputPluginWrite(ctx, true);
 }
 
@@ -1136,7 +1215,7 @@ pg_decode_message(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	 * write immediately iif (i) write-in-chunks=1 or (ii) non-transactional
 	 * messages.
 	 */
-	if (data->write_in_chunks || !transactional)
+	if (data->write_in_chunks || !transactional || data->msg_per_record)
 		OutputPluginPrepareWrite(ctx, true);
 
 	/*
@@ -1148,34 +1227,47 @@ pg_decode_message(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 
 	if (data->pretty_print)
 	{
+		int baseTabCount = 2;
+		if (data->msg_per_record)
+			baseTabCount = 0;
+
 		/* if we don't write in chunks, we need a newline here */
 		if (!data->write_in_chunks && transactional)
 			appendStringInfoChar(ctx->out, '\n');
 
 		/* build a complete JSON object for non-transactional message */
-		if (!transactional)
+		if (!transactional && !data->msg_per_record)
 		{
 			appendStringInfoString(ctx->out, "{\n");
 			appendStringInfoString(ctx->out, "\t\"change\": [\n");
 		}
 
-		appendStringInfoString(ctx->out, "\t\t");
+		appendStringInfoIndent(ctx->out, baseTabCount);
 
-		if (data->nr_changes > 1)
+		if (data->nr_changes > 1 && !data->msg_per_record)
 			appendStringInfoChar(ctx->out, ',');
 
 		appendStringInfoString(ctx->out, "{\n");
 
-		appendStringInfoString(ctx->out, "\t\t\t\"kind\": \"message\",\n");
+		appendStringInfoStringIndent(ctx->out, baseTabCount + 1, "\"kind\": \"message\",\n");
+
+		/* include xid on every record to make tracking easier */
+		if (data->msg_per_record && transactional)
+		{
+			appendStringInfoIndent(ctx->out, baseTabCount + 1);
+			appendStringInfo(ctx->out, "\"xid\" :%u,\n", txn->xid);
+		}
+
 
 		if (transactional)
-			appendStringInfoString(ctx->out, "\t\t\t\"transactional\": true,\n");
+			appendStringInfoStringIndent(ctx->out, baseTabCount + 1, "\"transactional\": true,\n");
 		else
-			appendStringInfoString(ctx->out, "\t\t\t\"transactional\": false,\n");
+			appendStringInfoStringIndent(ctx->out, baseTabCount + 1, "\"transactional\": false,\n");
 
-		appendStringInfo(ctx->out, "\t\t\t\"prefix\": ");
+		appendStringInfoStringIndent(ctx->out, baseTabCount + 1, "\"prefix\": ");
 		escape_json(ctx->out, prefix);
-		appendStringInfoString(ctx->out, ",\n\t\t\t\"content\": ");
+		appendStringInfoString(ctx->out, ",\n");
+		appendStringInfoStringIndent(ctx->out, baseTabCount + 1, "\"content\": ");
 
 		// force null-terminated string
 		content_str = (char *)palloc0(content_size+1);
@@ -1183,10 +1275,15 @@ pg_decode_message(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 		escape_json(ctx->out, content_str);
 		pfree(content_str);
 
-		appendStringInfoString(ctx->out, "\n\t\t}");
+		appendStringInfoChar(ctx->out, '\n');
+		appendStringInfoStringIndent(ctx->out, baseTabCount, "}");
 
+		if (data->msg_per_record)
+		{
+			appendStringInfoChar(ctx->out, '\n');
+		}
 		/* build a complete JSON object for non-transactional message */
-		if (!transactional)
+		else if (!transactional)
 		{
 			appendStringInfoString(ctx->out, "\n\t]");
 			appendStringInfoString(ctx->out, "\n}");
@@ -1195,17 +1292,23 @@ pg_decode_message(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	else
 	{
 		/* build a complete JSON object for non-transactional message */
-		if (!transactional)
+		if (!transactional && !data->msg_per_record)
 		{
 			appendStringInfoString(ctx->out, "{\"change\":[");
 		}
 
-		if (data->nr_changes > 1)
+		if (data->nr_changes > 1 && !data->msg_per_record)
 			appendStringInfoString(ctx->out, ",{");
 		else
 			appendStringInfoChar(ctx->out, '{');
 
 		appendStringInfoString(ctx->out, "\"kind\":\"message\",");
+
+		/* include xid on every record to make tracking easier */
+		if (data->msg_per_record)
+		{
+			appendStringInfo(ctx->out, "\"xid\":%u,", txn->xid);
+		}
 
 		if (transactional)
 			appendStringInfoString(ctx->out, "\"transactional\":true,");
@@ -1224,8 +1327,11 @@ pg_decode_message(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 
 		appendStringInfoChar(ctx->out, '}');
 
+		if (data->msg_per_record) {
+			appendStringInfoChar(ctx->out, '\n');
+		}
 		/* build a complete JSON object for non-transactional message */
-		if (!transactional)
+		else if (!transactional)
 		{
 			appendStringInfoString(ctx->out, "]}");
 		}
@@ -1234,7 +1340,7 @@ pg_decode_message(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	MemoryContextSwitchTo(old);
 	MemoryContextReset(data->context);
 
-	if (data->write_in_chunks || !transactional)
+	if (data->write_in_chunks || !transactional || data->msg_per_record)
 		OutputPluginWrite(ctx, true);
 }
 #endif
@@ -1383,4 +1489,19 @@ string_to_SelectTable(char *rawstring, char separator, List **select_tables)
 	list_free_deep(qualified_tables);
 
 	return true;
+}
+
+static void
+appendStringInfoStringIndent(StringInfo str, int tabCount, const char *s)
+{
+	if (tabCount > 0)
+		appendStringInfo(str, "%.*s", tabCount, "\t\t\t\t\t\t\t\t\t");
+	appendStringInfoString(str, s);
+}
+
+static void
+appendStringInfoIndent(StringInfo str, int tabCount)
+{
+	if (tabCount > 0)
+		appendStringInfo(str, "%.*s", tabCount, "\t\t\t\t\t\t\t\t\t");
 }

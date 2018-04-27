@@ -73,6 +73,8 @@ Parameters
 * `include-unchanged-toast`: add TOAST value even if it was not modified. Since TOAST values are usually large, this option could save IO and bandwidth if it is disabled. Default is _true_.
 * `filter-tables`: exclude rows from the specified tables. Default is empty which means that no table will be filtered. It is a comma separated value. The tables should be schema-qualified. `*.foo` means table foo in all schemas and `bar.*` means all tables in schema bar. Special characters (space, single quote, comma, period, asterisk) must be escaped with backslash. Schema and table are case-sensitive. Table `"public"."Foo bar"` should be specified as `public.Foo\ bar`.
 * `add-tables`: include only rows from the specified tables. Default is all tables from all schemas. It has the same rules from `filter-tables`.
+* `msg-per-record`: opt into an alternate output format where every record creates a new json message, this supercedes `write-in-chunks` and makes
+parsing large transactions easier. See [Alternate Output Format](#alternate-output-format) for details
 
 Examples
 ========
@@ -311,6 +313,90 @@ psql:/tmp/example2.sql:17: WARNING:  table "table2_without_pk" without primary k
 	]
 }
 stop
+```
+
+# Alternate Output Format
+
+wal2json also has an alternate output format that instead of outputting a message per transaction, it outputs a message per record change.
+
+This can be opted into with `msg-per-record` option.
+
+This has advantages if you reguarly deal with large transactions or with writing to other systems. Intead of needing to use `write-in-chunks` and stream parsing the json for example, you can instead parse each message normally.
+
+Primarily, this means adding two new "kind"s of messages, `begin` and `commit` and breaking up the change array. Additionally, the `xid` is added to
+each message to associate messages to one another.
+
+An example of the output is shown below:
+
+```
+{
+  "kind": "begin",
+  "xid": 1042,
+  "split": true
+}
+{
+  "kind": "insert",
+  "xid": 1042
+  "schema": "public",
+  "table": "table2_with_pk",
+  "columnnames": ["a", "b", "c"],
+  "columntypes": ["integer", "character varying(30)", "timestamp without time zone"],
+  "columnvalues": [1, "Backup and Restore", "2018-03-27 12:05:29.914496"]
+}
+{
+  "kind": "insert",
+  "xid": 1042
+  "schema": "public",
+  "table": "table2_with_pk",
+  "columnnames": ["a", "b", "c"],
+  "columntypes": ["integer", "character varying(30)", "timestamp without time zone"],
+  "columnvalues": [2, "Tuning", "2018-03-27 12:05:29.914496"]
+}
+{
+  "kind": "insert",
+  "xid": 1042
+  "schema": "public",
+  "table": "table2_with_pk",
+  "columnnames": ["a", "b", "c"],
+  "columntypes": ["integer", "character varying(30)", "timestamp without time zone"],
+  "columnvalues": [3, "Replication", "2018-03-27 12:05:29.914496"]
+}
+{
+  "kind": "delete",
+  "xid": 1042
+  "schema": "public",
+  "table": "table2_with_pk",
+  "oldkeys": {
+    "keynames": ["a", "c"],
+    "keytypes": ["integer", "timestamp without time zone"],
+    "keyvalues": [1, "2018-03-27 12:05:29.914496"]
+  }
+}
+{
+  "kind": "delete",
+  "xid": 1042
+  "schema": "public",
+  "table": "table2_with_pk",
+  "oldkeys": {
+    "keynames": ["a", "c"],
+    "keytypes": ["integer", "timestamp without time zone"],
+    "keyvalues": [2, "2018-03-27 12:05:29.914496"]
+  }
+}
+{
+  "kind": "insert",
+  "xid": 1042
+  "schema": "public",
+  "table": "table2_without_pk",
+  "columnnames": ["a", "b", "c"],
+  "columntypes": ["integer", "numeric(5,2)", "text"],
+  "columnvalues": [1, 2.34, "Tapir"]
+}
+{
+  "kind": "commit",
+  "xid": 1042
+}
+
 ```
 
 License

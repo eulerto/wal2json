@@ -1,0 +1,97 @@
+\set VERBOSITY terse
+-- predictability
+SET synchronous_commit = on;
+SELECT 'init' FROM pg_create_logical_replication_slot('regression_slot', 'wal2json');
+ ?column? 
+----------
+ init
+(1 row)
+
+SELECT 'msg1' FROM pg_logical_emit_message(true, 'wal2json', 'this is a\ message');
+ ?column? 
+----------
+ msg1
+(1 row)
+
+SELECT 'msg2' FROM pg_logical_emit_message(false, 'wal2json', 'this is "another" message');
+ ?column? 
+----------
+ msg2
+(1 row)
+
+SELECT 'msg3' FROM pg_logical_emit_message(false, 'wal2json', E'\\x546170697275732074657272657374726973'::bytea);
+ ?column? 
+----------
+ msg3
+(1 row)
+
+SELECT 'msg4' FROM pg_logical_emit_message(false, 'wal2json', E'\\x5072696f646f6e746573206d6178696d7573'::bytea);
+ ?column? 
+----------
+ msg4
+(1 row)
+
+SELECT 'msg5' FROM pg_logical_emit_message(false, 'wal2json', E'\\x436172796f6361722062726173696c69656e7365'::bytea);
+ ?column? 
+----------
+ msg5
+(1 row)
+
+BEGIN;
+SELECT 'msg6' FROM pg_logical_emit_message(true, 'wal2json', 'this message will not be printed');
+ ?column? 
+----------
+ msg6
+(1 row)
+
+SELECT 'msg7' FROM pg_logical_emit_message(false, 'wal2json', 'this message will be printed even if the transaction is rollbacked');
+ ?column? 
+----------
+ msg7
+(1 row)
+
+ROLLBACK;
+BEGIN;
+SELECT 'msg8' FROM pg_logical_emit_message(true, 'wal2json', 'this is message #1');
+ ?column? 
+----------
+ msg8
+(1 row)
+
+SELECT 'msg9' FROM pg_logical_emit_message(false, 'wal2json', 'this message will be printed before message #1');
+ ?column? 
+----------
+ msg9
+(1 row)
+
+SELECT 'msg10' FROM pg_logical_emit_message(true, 'wal2json', 'this is message #2');
+ ?column? 
+----------
+ msg10
+(1 row)
+
+COMMIT;
+SELECT data::jsonb - 'xid' FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pretty-print', '1', 'msg-per-record', '1');
+                                                                      ?column?                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------
+ {"kind": "begin", "split": true}
+ {"kind": "message", "prefix": "wal2json", "content": "this is a\\ message", "transactional": true}
+ {"kind": "commit"}
+ {"kind": "message", "prefix": "wal2json", "content": "this is \"another\" message", "transactional": false}
+ {"kind": "message", "prefix": "wal2json", "content": "Tapirus terrestris", "transactional": false}
+ {"kind": "message", "prefix": "wal2json", "content": "Priodontes maximus", "transactional": false}
+ {"kind": "message", "prefix": "wal2json", "content": "Caryocar brasiliense", "transactional": false}
+ {"kind": "message", "prefix": "wal2json", "content": "this message will be printed even if the transaction is rollbacked", "transactional": false}
+ {"kind": "message", "prefix": "wal2json", "content": "this message will be printed before message #1", "transactional": false}
+ {"kind": "begin", "split": true}
+ {"kind": "message", "prefix": "wal2json", "content": "this is message #1", "transactional": true}
+ {"kind": "message", "prefix": "wal2json", "content": "this is message #2", "transactional": true}
+ {"kind": "commit"}
+(13 rows)
+
+SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
+ ?column? 
+----------
+ stop
+(1 row)
+
