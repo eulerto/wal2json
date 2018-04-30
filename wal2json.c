@@ -1,7 +1,7 @@
 /*-------------------------------------------------------------------------
  *
  * wal2json.c
- * 		JSON output plugin for changeset extraction
+ *		JSON output plugin for changeset extraction
  *
  * Copyright (c) 2013-2018, Euler Taveira de Oliveira
  *
@@ -11,6 +11,8 @@
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
+
+#include "access/xlog.h"
 
 #include "catalog/pg_type.h"
 
@@ -40,6 +42,8 @@ typedef struct
 	bool		include_typmod;		/* include typmod in types */
 	bool		include_not_null;	/* include not-null constraints */
 	bool		include_unchanged_toast;	/* include unchanged TOAST field values in output */
+	bool		include_xmins;	/* include catalog_xmin and xmin field in output */
+	bool		include_next_xids;	/* include postgres epoch field in output */
 
 	bool		pretty_print;		/* pretty-print JSON? */
 	bool		write_in_chunks;	/* write in chunks? */
@@ -124,7 +128,7 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 										ALLOCSET_DEFAULT_INITSIZE,
 										ALLOCSET_DEFAULT_MAXSIZE
 #endif
-                                        );
+																				);
 	data->include_xids = false;
 	data->include_timestamp = false;
 	data->include_schemas = true;
@@ -136,6 +140,8 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 	data->include_lsn = false;
 	data->include_not_null = false;
 	data->include_unchanged_toast = true;
+	data->include_xmins = false;
+	data->include_next_xids = false;
 	data->filter_tables = NIL;
 
 	/* add all tables in all schemas by default */
@@ -300,6 +306,32 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
 							 strVal(elem->arg), elem->defname)));
 		}
+		else if (strcmp(elem->defname, "include-xmins") == 0)
+		{
+			if (elem->arg == NULL)
+			{
+				elog(LOG, "include-xmins is null");
+				data->include_xmins = true;
+			}
+			else if (!parse_bool(strVal(elem->arg), &data->include_xmins))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
+							 strVal(elem->arg), elem->defname)));
+		}
+		else if (strcmp(elem->defname, "include-next-xids") == 0)
+		{
+			if (elem->arg == NULL)
+			{
+				elog(LOG, "include-next-xids is null");
+				data->include_next_xids = true;
+			}
+			else if (!parse_bool(strVal(elem->arg), &data->include_next_xids))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
+							 strVal(elem->arg), elem->defname)));
+		}
 		else if (strcmp(elem->defname, "filter-tables") == 0)
 		{
 			char	*rawstr;
@@ -414,6 +446,37 @@ pg_decode_begin_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 			appendStringInfo(ctx->out, "\t\"timestamp\": \"%s\",\n", timestamptz_to_str(txn->commit_time));
 		else
 			appendStringInfo(ctx->out, "\"timestamp\":\"%s\",", timestamptz_to_str(txn->commit_time));
+	}
+
+	if (data->include_xmins)
+	{
+		if (data->pretty_print)
+		{
+			appendStringInfo(ctx->out, "\t\"xmin\": %u,\n", ctx->slot->effective_xmin);
+			appendStringInfo(ctx->out, "\t\"catxmin\": %u,\n", ctx->slot->effective_catalog_xmin);
+		}
+		else
+		{
+			appendStringInfo(ctx->out, "\"xmin\":%u,", ctx->slot->effective_xmin);
+			appendStringInfo(ctx->out, "\"catxmin\":%u,", ctx->slot->effective_catalog_xmin);
+		}
+	}
+
+	if (data->include_next_xids)
+	{
+		TransactionId nextXid;
+		uint32 epoch;
+		GetNextXidAndEpoch(&nextXid, &epoch);
+		if (data->pretty_print)
+		{
+			appendStringInfo(ctx->out, "\t\"nextxid\": %u,\n", nextXid);
+			appendStringInfo(ctx->out, "\t\"epoch\": %u,\n", epoch);
+		}
+		else
+		{
+			appendStringInfo(ctx->out, "\"nextxid\":%u,", nextXid);
+			appendStringInfo(ctx->out, "\"epoch\":%u,", epoch);
+		}
 	}
 
 	if (data->pretty_print)
@@ -1320,9 +1383,9 @@ parse_table_identifier(List *qualified_tables, char separator, List **select_tab
 static bool
 string_to_SelectTable(char *rawstring, char separator, List **select_tables)
 {
-	char	   *nextp;
+	char		 *nextp;
 	bool		done = false;
-	List	   *qualified_tables = NIL;
+	List		 *qualified_tables = NIL;
 
 	nextp = rawstring;
 
@@ -1335,9 +1398,9 @@ string_to_SelectTable(char *rawstring, char separator, List **select_tables)
 	/* At the top of the loop, we are at start of a new identifier. */
 	do
 	{
-		char	   *curname;
-		char	   *endp;
-		char	   *qname;
+		char		 *curname;
+		char		 *endp;
+		char		 *qname;
 
 		curname = nextp;
 		while (*nextp && *nextp != separator && !isspace(*nextp))
