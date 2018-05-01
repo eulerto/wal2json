@@ -319,84 +319,25 @@ stop
 
 wal2json also has an alternate output format that instead of outputting a message per transaction, it outputs a message per record change.
 
-This can be opted into with `msg-per-record` option.
+This can be opted into with `msg-per-record` option. Additionally this optional probably should *NOT* be used with `pretty-print`. With this configuration,
+wal2json outputs proper "jsonlines" (http://jsonlines.org/) formatted json.
 
 This has advantages if you reguarly deal with large transactions or with writing to other systems. Intead of needing to use `write-in-chunks` and stream parsing the json for example, you can instead parse each message normally.
 
 Primarily, this means adding two new "kind"s of messages, `begin` and `commit` and breaking up the change array. Additionally, the `xid` is added to
 each message to associate messages to one another.
 
-An example of the output is shown below:
+An example of the output (without `pretty-print`) is shown below:
 
 ```
-{
-  "kind": "begin",
-  "xid": 1042,
-  "split": true
-}
-{
-  "kind": "insert",
-  "xid": 1042
-  "schema": "public",
-  "table": "table2_with_pk",
-  "columnnames": ["a", "b", "c"],
-  "columntypes": ["integer", "character varying(30)", "timestamp without time zone"],
-  "columnvalues": [1, "Backup and Restore", "2018-03-27 12:05:29.914496"]
-}
-{
-  "kind": "insert",
-  "xid": 1042
-  "schema": "public",
-  "table": "table2_with_pk",
-  "columnnames": ["a", "b", "c"],
-  "columntypes": ["integer", "character varying(30)", "timestamp without time zone"],
-  "columnvalues": [2, "Tuning", "2018-03-27 12:05:29.914496"]
-}
-{
-  "kind": "insert",
-  "xid": 1042
-  "schema": "public",
-  "table": "table2_with_pk",
-  "columnnames": ["a", "b", "c"],
-  "columntypes": ["integer", "character varying(30)", "timestamp without time zone"],
-  "columnvalues": [3, "Replication", "2018-03-27 12:05:29.914496"]
-}
-{
-  "kind": "delete",
-  "xid": 1042
-  "schema": "public",
-  "table": "table2_with_pk",
-  "oldkeys": {
-    "keynames": ["a", "c"],
-    "keytypes": ["integer", "timestamp without time zone"],
-    "keyvalues": [1, "2018-03-27 12:05:29.914496"]
-  }
-}
-{
-  "kind": "delete",
-  "xid": 1042
-  "schema": "public",
-  "table": "table2_with_pk",
-  "oldkeys": {
-    "keynames": ["a", "c"],
-    "keytypes": ["integer", "timestamp without time zone"],
-    "keyvalues": [2, "2018-03-27 12:05:29.914496"]
-  }
-}
-{
-  "kind": "insert",
-  "xid": 1042
-  "schema": "public",
-  "table": "table2_without_pk",
-  "columnnames": ["a", "b", "c"],
-  "columntypes": ["integer", "numeric(5,2)", "text"],
-  "columnvalues": [1, 2.34, "Tapir"]
-}
-{
-  "kind": "commit",
-  "xid": 1042
-}
-
+{"kind": "begin","xid": 1042,"split": true}
+{"kind": "insert","xid": 1042,"schema": "public","table": "table2_with_pk","columnnames": ["a", "b", "c"],"columntypes": ["integer", "character varying(30)", "timestamp without time zone"],"columnvalues": [1, "Backup and Restore", "2018-03-27 12:05:29.914496"]}
+{"kind": "insert","xid": 1042,"schema": "public","table": "table2_with_pk","columnnames": ["a", "b", "c"],"columntypes": ["integer", "character varying(30)", "timestamp without time zone"],"columnvalues": [2, "Tuning", "2018-03-27 12:05:29.914496"]}
+{"kind": "insert","xid": 1042,"schema": "public","table": "table2_with_pk","columnnames": ["a", "b", "c"],"columntypes": ["integer", "character varying(30)", "timestamp without time zone"],"columnvalues": [3, "Replication", "2018-03-27 12:05:29.914496"]}
+{"kind": "delete","xid": 1042,"schema": "public","table": "table2_with_pk","oldkeys": {"keynames": ["a", "c"],"keytypes": ["integer", "timestamp without time zone"],"keyvalues": [1, "2018-03-27 12:05:29.914496"]}}
+{"kind": "delete","xid": 1042,"schema": "public","table": "table2_with_pk","oldkeys": {"keynames": ["a", "c"],"keytypes": ["integer", "timestamp without time zone"],"keyvalues": [2, "2018-03-27 12:05:29.914496"]}}
+{"kind": "insert","xid": 1042, "schema": "public", "table": "table2_without_pk", "columnnames": ["a", "b", "c"], "columntypes": ["integer", "numeric(5,2)", "text"],"columnvalues": [1, 2.34, "Tapir"]}
+{"kind": "commit","xid": 1042}
 ```
 
 License
