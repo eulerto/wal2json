@@ -1,0 +1,55 @@
+Source: postgresql-wal2json
+Section: database
+Priority: extra
+Build-Depends: debhelper (>= 7),
+               postgresql-server-dev-all
+Standards-Version: 3.9.5
+Maintainer: Ivan Mincik <imincik@linz.govt.nz>
+Homepage: https://github.com/eulerto/wal2json
+Vcs-Git: git@github.com:eulerto/wal2json.git
+Vcs-Browser: https://github.com/eulerto/wal2json
+
+Package: postgresql-9.4-wal2json
+Architecture: any
+Depends: ${shlibs:Depends},
+         postgresql-9.4
+Recommends:
+Description: wal2json is an output plugin for logical decoding. It means that
+ the plugin have access to tuples produced by INSERT and UPDATE. Also,
+ UPDATE/DELETE old row versions can be accessed depending on the configured
+ replica identity. Changes can be consumed using the streaming protocol
+ (logical replication slots) or by a special SQL API.
+
+Package: postgresql-9.5-wal2json
+Architecture: any
+Depends: ${shlibs:Depends},
+         postgresql-9.5
+Recommends:
+Description: wal2json is an output plugin for logical decoding. It means that
+ the plugin have access to tuples produced by INSERT and UPDATE. Also,
+ UPDATE/DELETE old row versions can be accessed depending on the configured
+ replica identity. Changes can be consumed using the streaming protocol
+ (logical replication slots) or by a special SQL API.
+
+Package: postgresql-9.6-wal2json
+Architecture: any
+Depends: ${shlibs:Depends},
+         postgresql-9.6
+Recommends:
+Description: wal2json is an output plugin for logical decoding. It means that
+ the plugin have access to tuples produced by INSERT and UPDATE. Also,
+ UPDATE/DELETE old row versions can be accessed depending on the configured
+ replica identity. Changes can be consumed using the streaming protocol
+ (logical replication slots) or by a special SQL API.
+
+Package: postgresql-10-wal2json
+Architecture: any
+Depends: ${shlibs:Depends},
+         postgresql-10
+Recommends:
+Description: wal2json is an output plugin for logical decoding. It means that
+ the plugin have access to tuples produced by INSERT and UPDATE. Also,
+ UPDATE/DELETE old row versions can be accessed depending on the configured
+ replica identity. Changes can be consumed using the streaming protocol
+ (logical replication slots) or by a special SQL API.
+

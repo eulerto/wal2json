@@ -1,0 +1,8 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: wal2json
+Source: https://github.com/linz/wal2json.git
+
+Files: *
+Copyright: Copyright (c) 2013-2018, Euler Taveira de Oliveira. All Rights Reserved.
+License: BSD-3-clause
+ On Debian systems, the Artistic license is located in /usr/share/common-licenses/BSD

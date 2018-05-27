@@ -1,0 +1,5 @@
+postgresql-wal2json (1.0.0-1) unstable; urgency=medium
+
+  * Initial release
+
+ -- Ivan Mincik <imincik@linz.govt.nz>  Tue, 10 Apr 2018 01:11:11 +1200
