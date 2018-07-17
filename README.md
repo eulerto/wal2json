@@ -24,7 +24,7 @@ This extension is supported on [those platforms](http://www.postgresql.org/docs/
 You can also keep up with the latest fixes and features cloning the Git repository.
 
 ```
-$ git clone https://github.com/eulerto/wal2json.git
+$ git clone https://github.com/streamsets/wal2json.git
 ```
 
 Unix based Operating Systems
@@ -33,16 +33,11 @@ Unix based Operating Systems
 Before use this extension, you should build it and load it at the desirable database.
 
 ```
-$ git clone https://github.com/eulerto/wal2json.git
+$ git clone https://github.com/streamsets/wal2json.git
 $ PATH=/path/to/bin/pg_config:$PATH
 $ USE_PGXS=1 make
 $ USE_PGXS=1 make install
 ```
-
-Windows
--------
-
-There are several ways to build **wal2json** on Windows. If you are build PostgreSQL too, you can put **wal2json** directory inside contrib, change the contrib Makefile (variable SUBDIRS) and build it following the [Installation from Source Code on Windows](http://www.postgresql.org/docs/current/static/install-windows.html) instructions. However, if you already have PostgreSQL installed, it is also possible to compile **wal2json** out of the tree. Edit `wal2json.vcxproj` file and change `c:\postgres\pg103` to the PostgreSQL prefix directory. The next step is to open this project file in MS Visual Studio and compile it. Final step is to copy `wal2json.dll` to the `pg_config --pkglibdir` directory.
 
 Configuration
 =============
@@ -50,270 +45,16 @@ Configuration
 postgresql.conf
 ---------------
 
-You need to set up at least two parameters at postgresql.conf:
+You need to set up the following parameters in postgresql.conf
 
 ```
 wal_level = logical
 max_replication_slots = 1
+wal_sender_timeoute = 2000
 ```
 
 After changing these parameters, a restart is needed.
 
-Parameters
-----------
-
-* `include-xids`: add _xid_ to each changeset. Default is _false_.
-* `include-timestamp`: add _timestamp_ to each changeset. Default is _false_.
-* `include-schemas`: add _schema_ to each change. Default is _true_.
-* `include-types`: add _type_ to each change. Default is _true_.
-* `include-typmod`: add modifier to types that have it (eg. varchar(20) instead of varchar). Default is _true_.
-* `include-type-oids`: add type oids. Default is _false_.
-* `include-not-null`: add _not null_ information as _columnoptionals_. Default is _false_.
-* `pretty-print`: add spaces and indentation to JSON structures. Default is _false_.
-* `write-in-chunks`: write after every change instead of every changeset. Default is _false_.
-* `include-lsn`: add _nextlsn_ to each changeset. Default is _false_.
-* `include-unchanged-toast`: add TOAST value even if it was not modified. Since TOAST values are usually large, this option could save IO and bandwidth if it is disabled. Default is _true_.
-* `filter-tables`: exclude rows from the specified tables. Default is empty which means that no table will be filtered. It is a comma separated value. The tables should be schema-qualified. `*.foo` means table foo in all schemas and `bar.*` means all tables in schema bar. Special characters (space, single quote, comma, period, asterisk) must be escaped with backslash. Schema and table are case-sensitive. Table `"public"."Foo bar"` should be specified as `public.Foo\ bar`.
-* `add-tables`: include only rows from the specified tables. Default is all tables from all schemas. It has the same rules from `filter-tables`.
-
-Examples
-========
-
-There are two ways to obtain the changes (JSON objects) from **wal2json** plugin: calling functions via SQL or pg_recvlogical.
-
-pg_recvlogical
---------------
-
-Besides the configuration above, it is necessary to configure a replication connection to use pg_recvlogical.
-
-First, add a replication connection rule at pg_hba.conf:
-
-```
-local    replication     myuser                     trust
-```
-
-Also, set max_wal_senders at postgresql.conf:
-
-```
-max_wal_senders = 1
-```
-
-A restart is necessary if you changed max_wal_senders.
-
-You are ready to try **wal2json**. In one terminal:
-
-```
-$ pg_recvlogical -d postgres --slot test_slot --create-slot -P wal2json
-$ pg_recvlogical -d postgres --slot test_slot --start -o pretty-print=1 -f -
-```
-
-In another terminal:
-
-```
-$ cat /tmp/example1.sql
-CREATE TABLE table_with_pk (a SERIAL, b VARCHAR(30), c TIMESTAMP NOT NULL, PRIMARY KEY(a, c));
-CREATE TABLE table_without_pk (a SERIAL, b NUMERIC(5,2), c TEXT);
-
-BEGIN;
-INSERT INTO table_with_pk (b, c) VALUES('Backup and Restore', now());
-INSERT INTO table_with_pk (b, c) VALUES('Tuning', now());
-INSERT INTO table_with_pk (b, c) VALUES('Replication', now());
-DELETE FROM table_with_pk WHERE a < 3;
-
-INSERT INTO table_without_pk (b, c) VALUES(2.34, 'Tapir');
--- it is not added to stream because there isn't a pk or a replica identity
-UPDATE table_without_pk SET c = 'Anta' WHERE c = 'Tapir';
-COMMIT;
-
-$ psql -At -f /tmp/example1.sql postgres
-CREATE TABLE
-CREATE TABLE
-BEGIN
-INSERT 0 1
-INSERT 0 1
-INSERT 0 1
-DELETE 2
-INSERT 0 1
-UPDATE 1
-COMMIT
-```
-
-The output in the first terminal is:
-
-```
-{
-	"change": [
-	]
-}
-{
-	"change": [
-	]
-}
-WARNING:  table "table_without_pk" without primary key or replica identity is nothing
-{
-	"change": [
-		{
-			"kind": "insert",
-			"schema": "public",
-			"table": "table_with_pk",
-			"columnnames": ["a", "b", "c"],
-			"columntypes": ["integer", "character varying(30)", "timestamp without time zone"],
-			"columnvalues": [1, "Backup and Restore", "2018-03-27 11:58:28.988414"]
-		}
-		,{
-			"kind": "insert",
-			"schema": "public",
-			"table": "table_with_pk",
-			"columnnames": ["a", "b", "c"],
-			"columntypes": ["integer", "character varying(30)", "timestamp without time zone"],
-			"columnvalues": [2, "Tuning", "2018-03-27 11:58:28.988414"]
-		}
-		,{
-			"kind": "insert",
-			"schema": "public",
-			"table": "table_with_pk",
-			"columnnames": ["a", "b", "c"],
-			"columntypes": ["integer", "character varying(30)", "timestamp without time zone"],
-			"columnvalues": [3, "Replication", "2018-03-27 11:58:28.988414"]
-		}
-		,{
-			"kind": "delete",
-			"schema": "public",
-			"table": "table_with_pk",
-			"oldkeys": {
-				"keynames": ["a", "c"],
-				"keytypes": ["integer", "timestamp without time zone"],
-				"keyvalues": [1, "2018-03-27 11:58:28.988414"]
-			}
-		}
-		,{
-			"kind": "delete",
-			"schema": "public",
-			"table": "table_with_pk",
-			"oldkeys": {
-				"keynames": ["a", "c"],
-				"keytypes": ["integer", "timestamp without time zone"],
-				"keyvalues": [2, "2018-03-27 11:58:28.988414"]
-			}
-		}
-		,{
-			"kind": "insert",
-			"schema": "public",
-			"table": "table_without_pk",
-			"columnnames": ["a", "b", "c"],
-			"columntypes": ["integer", "numeric(5,2)", "text"],
-			"columnvalues": [1, 2.34, "Tapir"]
-		}
-	]
-}
-```
-
-Dropping the slot in the first terminal:
-
-```
-Ctrl+C
-$ pg_recvlogical -d postgres --slot test_slot --drop-slot
-```
-
-SQL functions
--------------
-
-```
-$ cat /tmp/example2.sql
-CREATE TABLE table2_with_pk (a SERIAL, b VARCHAR(30), c TIMESTAMP NOT NULL, PRIMARY KEY(a, c));
-CREATE TABLE table2_without_pk (a SERIAL, b NUMERIC(5,2), c TEXT);
-
-SELECT 'init' FROM pg_create_logical_replication_slot('test_slot', 'wal2json');
-
-BEGIN;
-INSERT INTO table2_with_pk (b, c) VALUES('Backup and Restore', now());
-INSERT INTO table2_with_pk (b, c) VALUES('Tuning', now());
-INSERT INTO table2_with_pk (b, c) VALUES('Replication', now());
-DELETE FROM table2_with_pk WHERE a < 3;
-
-INSERT INTO table2_without_pk (b, c) VALUES(2.34, 'Tapir');
--- it is not added to stream because there isn't a pk or a replica identity
-UPDATE table2_without_pk SET c = 'Anta' WHERE c = 'Tapir';
-COMMIT;
-
-SELECT data FROM pg_logical_slot_get_changes('test_slot', NULL, NULL, 'pretty-print', '1');
-SELECT 'stop' FROM pg_drop_replication_slot('test_slot');
-```
-
-The script above produces the output below:
-
-```
-$ psql -At -f /tmp/example2.sql postgres
-CREATE TABLE
-CREATE TABLE
-init
-BEGIN
-INSERT 0 1
-INSERT 0 1
-INSERT 0 1
-DELETE 2
-INSERT 0 1
-UPDATE 1
-COMMIT
-psql:/tmp/example2.sql:17: WARNING:  table "table2_without_pk" without primary key or replica identity is nothing
-{
-	"change": [
-		{
-			"kind": "insert",
-			"schema": "public",
-			"table": "table2_with_pk",
-			"columnnames": ["a", "b", "c"],
-			"columntypes": ["integer", "character varying(30)", "timestamp without time zone"],
-			"columnvalues": [1, "Backup and Restore", "2018-03-27 12:05:29.914496"]
-		}
-		,{
-			"kind": "insert",
-			"schema": "public",
-			"table": "table2_with_pk",
-			"columnnames": ["a", "b", "c"],
-			"columntypes": ["integer", "character varying(30)", "timestamp without time zone"],
-			"columnvalues": [2, "Tuning", "2018-03-27 12:05:29.914496"]
-		}
-		,{
-			"kind": "insert",
-			"schema": "public",
-			"table": "table2_with_pk",
-			"columnnames": ["a", "b", "c"],
-			"columntypes": ["integer", "character varying(30)", "timestamp without time zone"],
-			"columnvalues": [3, "Replication", "2018-03-27 12:05:29.914496"]
-		}
-		,{
-			"kind": "delete",
-			"schema": "public",
-			"table": "table2_with_pk",
-			"oldkeys": {
-				"keynames": ["a", "c"],
-				"keytypes": ["integer", "timestamp without time zone"],
-				"keyvalues": [1, "2018-03-27 12:05:29.914496"]
-			}
-		}
-		,{
-			"kind": "delete",
-			"schema": "public",
-			"table": "table2_with_pk",
-			"oldkeys": {
-				"keynames": ["a", "c"],
-				"keytypes": ["integer", "timestamp without time zone"],
-				"keyvalues": [2, "2018-03-27 12:05:29.914496"]
-			}
-		}
-		,{
-			"kind": "insert",
-			"schema": "public",
-			"table": "table2_without_pk",
-			"columnnames": ["a", "b", "c"],
-			"columntypes": ["integer", "numeric(5,2)", "text"],
-			"columnvalues": [1, 2.34, "Tapir"]
-		}
-	]
-}
-stop
-```
 
 License
 =======
