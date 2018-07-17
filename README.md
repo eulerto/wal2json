@@ -3,6 +3,8 @@
 Introduction
 ============
 
+Forked from [eulerto/wal2json](https://github.com/eulerto/wal2json) for integration with StreamSets Datacollector PostgreSQL CDC implementation.
+
 **wal2json** is an output plugin for logical decoding. It means that the plugin have access to tuples produced by INSERT and UPDATE. Also, UPDATE/DELETE old row versions can be accessed depending on the configured replica identity. Changes can be consumed using the streaming protocol (logical replication slots) or by a special SQL API.
 
 **format version 1** produces a JSON object per transaction. All of the new/old tuples are available in the JSON object. Also, there are options to include properties such as transaction timestamp, schema-qualified, data types, and transaction ids.
