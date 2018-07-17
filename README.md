@@ -31,7 +31,7 @@ $ sudo apt-get install postgresql-13-wal2json
 You can also keep up with the latest fixes and features cloning the Git repository.
 
 ```
-$ git clone https://github.com/eulerto/wal2json.git
+$ git clone https://github.com/streamsets/wal2json.git
 ```
 
 Unix based Operating Systems
@@ -71,18 +71,13 @@ $ make
 $ make install
 ```
 
-Windows
--------
-
-There are several ways to build **wal2json** on Windows. If you are build PostgreSQL too, you can put **wal2json** directory inside contrib, change the contrib Makefile (variable SUBDIRS) and build it following the [Installation from Source Code on Windows](http://www.postgresql.org/docs/current/static/install-windows.html) instructions. However, if you already have PostgreSQL installed, it is also possible to compile **wal2json** out of the tree. Edit `wal2json.vcxproj` file and change `c:\postgres\pg103` to the PostgreSQL prefix directory. The next step is to open this project file in MS Visual Studio and compile it. Final step is to copy `wal2json.dll` to the `pg_config --pkglibdir` directory.
-
 Configuration
 =============
 
 postgresql.conf
 ---------------
 
-You need to set up at least two parameters at postgresql.conf:
+You need to set up the following parameters in postgresql.conf
 
 ```
 wal_level = logical
