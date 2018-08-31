@@ -42,6 +42,52 @@ Windows
 
 There are several ways to build **wal2json** on Windows. If you are build PostgreSQL too, you can put **wal2json** directory inside contrib, change the contrib Makefile (variable SUBDIRS) and build it following the [Installation from Source Code on Windows](http://www.postgresql.org/docs/current/static/install-windows.html) instructions. However, if you already have PostgreSQL installed, it is also possible to compile **wal2json** out of the tree. Edit `wal2json.vcxproj` file and change `c:\postgres\pg103` to the PostgreSQL prefix directory. The next step is to open this project file in MS Visual Studio and compile it. Final step is to copy `wal2json.dll` to the `pg_config --pkglibdir` directory.
 
+Docker
+------
+
+If your local system does not have Postgres installed, or your system's architecture or Postgres version do not
+match that of your target database server, for instance because you develop on a Mac, but your database runs on
+a Linux system, you can compile inside Docker.
+
+This will produce a 64 bit Linux shared object for the Postgres version of your choice.
+
+```
+$ make docker
+sed "s/TARGET_VERSION/9.6/" Dockerfile.tmpl > Dockerfile && \
+	docker build -t wal2json:dev .
+Sending build context to Docker daemon  8.306MB
+Step 1/6 : FROM postgres:9.6
+ ---> 6eeaec6956fc
+Step 2/6 : RUN apt-get update
+ ---> Using cache
+ ---> 84e031ceed79
+Step 3/6 : RUN apt-get install -y autoconf automake g++ libtool make postgresql-server-dev-9.6
+ ---> Using cache
+ ---> 59374cbd9d27
+Step 4/6 : WORKDIR /src
+ ---> Using cache
+ ---> 3a37931ed387
+Step 5/6 : ENV USE_PGXS=1
+ ---> Using cache
+ ---> 61c81e3f80b3
+Step 6/6 : CMD make
+ ---> Using cache
+ ---> 3c66b60de834
+Successfully built 3c66b60de834
+Successfully tagged wal2json:dev
+docker run --rm -v /Users/evzijst/work/permpublisher/contrib/wal2json:/src wal2json:dev
+gcc -Wall -Wmissing-prototypes -Wpointer-arith -Wdeclaration-after-statement -Wendif-labels -Wmissing-format-attribute -Wformat-security -fno-strict-aliasing -fwrapv -fexcess-precision=standard -g -g -O2 -fdebug-prefix-map=.=. -fstack-protector-strong -Wformat -Werror=format-security -fno-omit-frame-pointer -fPIC -I. -I./ -I/usr/include/postgresql/9.6/server -I/usr/include/postgresql/internal -Wdate-time -D_FORTIFY_SOURCE=2 -D_GNU_SOURCE -I/usr/include/libxml2  -I/usr/include/mit-krb5  -c -o wal2json.o wal2json.c
+gcc -Wall -Wmissing-prototypes -Wpointer-arith -Wdeclaration-after-statement -Wendif-labels -Wmissing-format-attribute -Wformat-security -fno-strict-aliasing -fwrapv -fexcess-precision=standard -g -g -O2 -fdebug-prefix-map=.=. -fstack-protector-strong -Wformat -Werror=format-security -fno-omit-frame-pointer -fPIC -L/usr/lib/x86_64-linux-gnu -Wl,-z,relro -Wl,-z,now  -L/usr/lib/x86_64-linux-gnu/mit-krb5 -Wl,--as-needed  -shared -o wal2json.so wal2json.o
+```
+
+By default, the Docker rule compiles against Postgres 9.6. To target a different version:
+
+```
+$ TARGET_VERSION=9.4 make docker
+```
+
+When targeting a specific version, specify only the major and minor version components ("9.6", not "9.6.8").
+
 Configuration
 =============
 
