@@ -58,6 +58,11 @@ typedef struct
 	 */
 	bool		include_lsn;		/* include LSNs */
 
+	/*
+	 * LSN pointing to the WAL location of each individual row change.
+	 */
+	bool		change_lsn;			/* include LSNs on each row */
+
 	uint64		nr_changes;			/* # of passes in pg_decode_change() */
 									/* FIXME replace with txn->nentries */
 
@@ -144,6 +149,7 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 	data->pretty_print = false;
 	data->write_in_chunks = false;
 	data->include_lsn = false;
+	data->change_lsn = false;
 	data->include_not_null = false;
 	data->filter_tables = NIL;
 
@@ -305,6 +311,19 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 				data->include_lsn = true;
 			}
 			else if (!parse_bool(strVal(elem->arg), &data->include_lsn))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
+							 strVal(elem->arg), elem->defname)));
+		}
+		else if (strcmp(elem->defname, "include-change-lsn") == 0)
+		{
+			if (elem->arg == NULL)
+			{
+				elog(DEBUG1, "include-change-lsn argument is null");
+				data->change_lsn = true;
+			}
+			else if (!parse_bool(strVal(elem->arg), &data->change_lsn))
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
@@ -936,6 +955,13 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 		appendStringInfoChar(ctx->out, ',');
 
 	appendStringInfo(ctx->out, "{%s", data->nl);
+
+	if (data->change_lsn)
+	{
+		char *lsn_str = DatumGetCString(DirectFunctionCall1(pg_lsn_out, change->lsn));
+		appendStringInfo(ctx->out, "%s%s%s\"lsn\":%s\"%s\",%s", data->ht, data->ht, data->ht, data->sp, lsn_str, data->nl);
+		pfree(lsn_str);
+	}
 
 	/* Print change kind */
 	switch (change->action)
