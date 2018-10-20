@@ -1058,6 +1058,13 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 		if (isnull && replident)
 			continue;
 
+		/* Get Datum from tuple */
+		origval = heap_getattr(tuple, natt + 1, tupdesc, &isnull);
+
+		/* Skip nulls iif printing key/identity */
+		if (isnull && replident)
+			continue;
+
 		typid = attr->atttypid;
 
 		/* Figure out type name */
