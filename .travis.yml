@@ -1,0 +1,31 @@
+---
+sudo: required
+
+branches:
+  only:
+    - travis-builds
+
+env:
+  matrix:
+    - PG_VERSION=9.4
+    - PG_VERSION=9.5
+    - PG_VERSION=9.6
+    - PG_VERSION=10
+    - PG_VERSION=11
+
+language: c
+
+services:
+  - docker
+
+before_install:
+  - docker pull dpirotte/postgres-dev:stretch
+
+script:
+  - >
+    docker run --rm -it \
+      -v $PWD:/build -w /build \
+      -e PATH=/usr/lib/postgresql/$PG_VERSION/bin:/usr/bin:/bin \
+      dpirotte/postgres-dev:stretch \
+      bash -c "pg_ctlcluster $PG_VERSION main start && \
+               make clean all install installcheck"
