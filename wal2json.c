@@ -24,6 +24,11 @@
 #include "utils/rel.h"
 #include "utils/syscache.h"
 
+#if PG_VERSION_NUM >= 90500
+#define HAS_FILTER_BY_ORIGIN
+#include "replication/origin.h"
+#endif
+
 PG_MODULE_MAGIC;
 
 extern void		_PG_init(void);
@@ -42,6 +47,7 @@ typedef struct
 
 	bool		pretty_print;		/* pretty-print JSON? */
 	bool		write_in_chunks;	/* write in chunks? */
+	bool		only_local;		/* only output records originating from this node */
 
 	List		*filter_tables;		/* filter out tables */
 	List		*add_tables;		/* add only these tables */
@@ -79,6 +85,9 @@ static void pg_decode_commit_txn(LogicalDecodingContext *ctx,
 static void pg_decode_change(LogicalDecodingContext *ctx,
 				 ReorderBufferTXN *txn, Relation rel,
 				 ReorderBufferChange *change);
+#ifdef HAS_FILTER_BY_ORIGIN
+static bool pg_decode_filter(LogicalDecodingContext *ctx, RepOriginId origin_id);
+#endif
 #if	PG_VERSION_NUM >= 90600
 static void pg_decode_message(LogicalDecodingContext *ctx,
 					ReorderBufferTXN *txn, XLogRecPtr lsn,
@@ -105,6 +114,9 @@ _PG_output_plugin_init(OutputPluginCallbacks *cb)
 	cb->change_cb = pg_decode_change;
 	cb->commit_cb = pg_decode_commit_txn;
 	cb->shutdown_cb = pg_decode_shutdown;
+#ifdef HAS_FILTER_BY_ORIGIN
+ 	cb->filter_by_origin_cb = pg_decode_filter;
+#endif
 #if	PG_VERSION_NUM >= 90600
 	cb->message_cb = pg_decode_message;
 #endif
@@ -359,6 +371,16 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 				pfree(rawstr);
 			}
 		}
+		else if (strcmp(elem->defname, "only-local") == 0)
+		{
+			if (elem->arg == NULL)
+				data->only_local = true;
+			else if (!parse_bool(strVal(elem->arg), &data->only_local))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
+								strVal(elem->arg), elem->defname)));
+		}
 		else
 		{
 			ereport(ERROR,
@@ -441,6 +463,17 @@ pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	OutputPluginWrite(ctx, true);
 }
 
+#ifdef HAS_FILTER_BY_ORIGIN
+static bool
+pg_decode_filter(LogicalDecodingContext *ctx, RepOriginId origin_id)
+{
+ 	JsonDecodingData *data = ctx->output_plugin_private;
+
+	if (data->only_local && origin_id != InvalidRepOriginId)
+		return true;
+	return false;
+}
+#endif
 
 /*
  * Accumulate tuple information and stores it at the end

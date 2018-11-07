@@ -1,0 +1,57 @@
+\set VERBOSITY terse
+-- predictability
+SET synchronous_commit = on;
+CREATE TABLE t (a int);
+SELECT pg_replication_origin_create('repl');
+ pg_replication_origin_create 
+------------------------------
+                            1
+(1 row)
+
+SELECT 'init' FROM pg_create_logical_replication_slot('regression_slot', 'wal2json');
+ ?column? 
+----------
+ init
+(1 row)
+
+INSERT INTO t VALUES (1);
+SELECT pg_replication_origin_session_setup('repl');
+ pg_replication_origin_session_setup 
+-------------------------------------
+ 
+(1 row)
+
+BEGIN;
+SELECT pg_replication_origin_xact_setup('0/1234567', current_timestamp);
+ pg_replication_origin_xact_setup 
+----------------------------------
+ 
+(1 row)
+
+INSERT INTO t VALUES (2);
+COMMIT;
+SELECT pg_replication_origin_session_reset();
+ pg_replication_origin_session_reset 
+-------------------------------------
+ 
+(1 row)
+
+INSERT INTO t VALUES (3);
+\a
+\t
+SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL);
+{"change":[{"kind":"insert","schema":"public","table":"t","columnnames":["a"],"columntypes":["integer"],"columnvalues":[1]}]}
+{"change":[{"kind":"insert","schema":"public","table":"t","columnnames":["a"],"columntypes":["integer"],"columnvalues":[2]}]}
+{"change":[{"kind":"insert","schema":"public","table":"t","columnnames":["a"],"columntypes":["integer"],"columnvalues":[3]}]}
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'only-local', '1');
+{"change":[{"kind":"insert","schema":"public","table":"t","columnnames":["a"],"columntypes":["integer"],"columnvalues":[1]}]}
+{"change":[{"kind":"insert","schema":"public","table":"t","columnnames":["a"],"columntypes":["integer"],"columnvalues":[3]}]}
+\a
+\t
+SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
+ ?column? 
+----------
+ stop
+(1 row)
+
+DROP TABLE t;
