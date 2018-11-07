@@ -25,7 +25,6 @@
 #include "utils/syscache.h"
 
 #if PG_VERSION_NUM >= 90500
-#define HAS_FILTER_BY_ORIGIN
 #include "replication/origin.h"
 #endif
 
@@ -85,7 +84,7 @@ static void pg_decode_commit_txn(LogicalDecodingContext *ctx,
 static void pg_decode_change(LogicalDecodingContext *ctx,
 				 ReorderBufferTXN *txn, Relation rel,
 				 ReorderBufferChange *change);
-#ifdef HAS_FILTER_BY_ORIGIN
+#if PG_VERSION_NUM >= 90500
 static bool pg_decode_filter(LogicalDecodingContext *ctx, RepOriginId origin_id);
 #endif
 #if	PG_VERSION_NUM >= 90600
@@ -114,7 +113,7 @@ _PG_output_plugin_init(OutputPluginCallbacks *cb)
 	cb->change_cb = pg_decode_change;
 	cb->commit_cb = pg_decode_commit_txn;
 	cb->shutdown_cb = pg_decode_shutdown;
-#ifdef HAS_FILTER_BY_ORIGIN
+#if PG_VERSION_NUM >= 90500
  	cb->filter_by_origin_cb = pg_decode_filter;
 #endif
 #if	PG_VERSION_NUM >= 90600
@@ -463,7 +462,7 @@ pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	OutputPluginWrite(ctx, true);
 }
 
-#ifdef HAS_FILTER_BY_ORIGIN
+#if PG_VERSION_NUM >= 90500
 static bool
 pg_decode_filter(LogicalDecodingContext *ctx, RepOriginId origin_id)
 {
