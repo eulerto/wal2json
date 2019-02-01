@@ -1040,7 +1040,7 @@ pg_decode_message(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 
 	appendStringInfo(ctx->out, "%s%s", data->ht, data->ht);
 
-	if (data->nr_changes > 1)
+	if (transactional && data->nr_changes > 1)
 		appendStringInfoChar(ctx->out, ',');
 
 	appendStringInfo(ctx->out, "{%s%s%s%s\"kind\":%s\"message\",%s", data->nl, data->ht, data->ht, data->ht, data->sp, data->nl);

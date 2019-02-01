@@ -71,6 +71,20 @@ SELECT 'msg10' FROM pg_logical_emit_message(true, 'wal2json', 'this is message #
 (1 row)
 
 COMMIT;
+SELECT 'msg11' FROM pg_logical_emit_message(false, 'wal2json', 'this message is outside of a transaction');
+ ?column? 
+----------
+ msg11
+(1 row)
+
+BEGIN;
+SELECT 'msg12' FROM pg_logical_emit_message(true, 'wal2json', 'this message will be printed last');
+ ?column? 
+----------
+ msg12
+(1 row)
+
+COMMIT;
 SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pretty-print', '1');
                                                   data                                                   
 ---------------------------------------------------------------------------------------------------------
@@ -160,7 +174,27 @@ SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pre
                  }                                                                                      +
          ]                                                                                              +
  }
-(8 rows)
+ {                                                                                                      +
+         "change": [                                                                                    +
+                 {                                                                                      +
+                         "kind": "message",                                                             +
+                         "transactional": false,                                                        +
+                         "prefix": "wal2json",                                                          +
+                         "content": "this message is outside of a transaction"                          +
+                 }                                                                                      +
+         ]                                                                                              +
+ }
+ {                                                                                                      +
+         "change": [                                                                                    +
+                 {                                                                                      +
+                         "kind": "message",                                                             +
+                         "transactional": true,                                                         +
+                         "prefix": "wal2json",                                                          +
+                         "content": "this message will be printed last"                                 +
+                 }                                                                                      +
+         ]                                                                                              +
+ }
+(10 rows)
 
 SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
  ?column? 

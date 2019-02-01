@@ -23,6 +23,12 @@ SELECT 'msg9' FROM pg_logical_emit_message(false, 'wal2json', 'this message will
 SELECT 'msg10' FROM pg_logical_emit_message(true, 'wal2json', 'this is message #2');
 COMMIT;
 
+SELECT 'msg11' FROM pg_logical_emit_message(false, 'wal2json', 'this message is outside of a transaction');
+
+BEGIN;
+SELECT 'msg12' FROM pg_logical_emit_message(true, 'wal2json', 'this message will be printed last');
+COMMIT;
+
 SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pretty-print', '1');
 
 SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
