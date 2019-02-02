@@ -1,0 +1,366 @@
+\set VERBOSITY terse
+-- predictability
+SET synchronous_commit = on;
+CREATE TABLE table_with_pk (
+a	smallserial,
+b	smallint,
+c	int,
+d	bigint,
+e	numeric(5,3),
+f	real not null,
+g	double precision,
+h	char(10),
+i	varchar(30),
+j	text,
+k	bit varying(20),
+l	timestamp,
+m	date,
+n	boolean not null,
+o	json,
+p	tsvector,
+PRIMARY KEY(b, c, d)
+);
+ERROR:  relation "table_with_pk" already exists
+CREATE TABLE table_without_pk (
+a	smallserial,
+b	smallint,
+c	int,
+d	bigint,
+e	numeric(5,3),
+f	real not null,
+g	double precision,
+h	char(10),
+i	varchar(30),
+j	text,
+k	bit varying(20),
+l	timestamp,
+m	date,
+n	boolean not null,
+o	json,
+p	tsvector
+);
+ERROR:  relation "table_without_pk" already exists
+CREATE TABLE table_with_unique (
+a	smallserial,
+b	smallint,
+c	int,
+d	bigint,
+e	numeric(5,3) not null,
+f	real not null,
+g	double precision not null,
+h	char(10),
+i	varchar(30),
+j	text,
+k	bit varying(20),
+l	timestamp,
+m	date,
+n	boolean not null,
+o	json,
+p	tsvector,
+UNIQUE(g, n)
+);
+ERROR:  relation "table_with_unique" already exists
+SELECT 'init' FROM pg_create_logical_replication_slot('regression_slot', 'wal2json');
+ ?column? 
+----------
+ init
+(1 row)
+
+-- INSERT
+BEGIN;
+INSERT INTO table_with_pk (b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) VALUES(1, 2, 3, 3.54, 876.563452345, 1.23, 'teste', 'testando', 'um texto longo', B'001110010101010', '2013-11-02 17:30:52', '2013-02-04', true, '{ "a": 123 }', 'Old Old Parr'::tsvector);
+INSERT INTO table_without_pk (b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) VALUES(1, 2, 3, 3.54, 876.563452345, 1.23, 'teste', 'testando', 'um texto longo', B'001110010101010', '2013-11-02 17:30:52', '2013-02-04', true, '{ "a": 123 }', 'Old Old Parr'::tsvector);
+INSERT INTO table_with_unique (b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) VALUES(1, 2, 3, 3.54, 876.563452345, 1.23, 'teste', 'testando', 'um texto longo', B'001110010101010', '2013-11-02 17:30:52', '2013-02-04', true, '{ "a": 123 }', 'Old Old Parr'::tsvector);
+COMMIT;
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pretty-print', '1', 'use-key-value-hash', '1');
+                                 data                                 
+----------------------------------------------------------------------
+ {                                                                   +
+         "change": [                                                 +
+                 {                                                   +
+                         "kind": "insert",                           +
+                         "schema": "public",                         +
+                         "table": "table_with_pk",                   +
+                         "changes": {                                +
+                                 "a": 2,                             +
+                                 "b": 1,                             +
+                                 "c": 2,                             +
+                                 "d": 3,                             +
+                                 "e": 3.540,                         +
+                                 "f": 876.563,                       +
+                                 "g": 1.23,                          +
+                                 "h": "teste     ",                  +
+                                 "i": "testando",                    +
+                                 "j": "um texto longo",              +
+                                 "k": "001110010101010",             +
+                                 "l": "Sat Nov 02 17:30:52 2013",    +
+                                 "m": "02-04-2013",                  +
+                                 "n": true,                          +
+                                 "o": "{ \"a\": 123 }",              +
+                                 "p": "'Old' 'Parr'"                 +
+                         },                                          +
+                         "columntypes": {                            +
+                                 "a": "smallint",                    +
+                                 "b": "smallint",                    +
+                                 "c": "integer",                     +
+                                 "d": "bigint",                      +
+                                 "e": "numeric(5,3)",                +
+                                 "f": "real",                        +
+                                 "g": "double precision",            +
+                                 "h": "character(10)",               +
+                                 "i": "character varying(30)",       +
+                                 "j": "text",                        +
+                                 "k": "bit varying(20)",             +
+                                 "l": "timestamp without time zone", +
+                                 "m": "date",                        +
+                                 "n": "boolean",                     +
+                                 "o": "json",                        +
+                                 "p": "tsvector"                     +
+                         }                                           +
+                 }                                                   +
+                 ,{                                                  +
+                         "kind": "insert",                           +
+                         "schema": "public",                         +
+                         "table": "table_without_pk",                +
+                         "changes": {                                +
+                                 "a": 2,                             +
+                                 "b": 1,                             +
+                                 "c": 2,                             +
+                                 "d": 3,                             +
+                                 "e": 3.540,                         +
+                                 "f": 876.563,                       +
+                                 "g": 1.23,                          +
+                                 "h": "teste     ",                  +
+                                 "i": "testando",                    +
+                                 "j": "um texto longo",              +
+                                 "k": "001110010101010",             +
+                                 "l": "Sat Nov 02 17:30:52 2013",    +
+                                 "m": "02-04-2013",                  +
+                                 "n": true,                          +
+                                 "o": "{ \"a\": 123 }",              +
+                                 "p": "'Old' 'Parr'"                 +
+                         },                                          +
+                         "columntypes": {                            +
+                                 "a": "smallint",                    +
+                                 "b": "smallint",                    +
+                                 "c": "integer",                     +
+                                 "d": "bigint",                      +
+                                 "e": "numeric(5,3)",                +
+                                 "f": "real",                        +
+                                 "g": "double precision",            +
+                                 "h": "character(10)",               +
+                                 "i": "character varying(30)",       +
+                                 "j": "text",                        +
+                                 "k": "bit varying(20)",             +
+                                 "l": "timestamp without time zone", +
+                                 "m": "date",                        +
+                                 "n": "boolean",                     +
+                                 "o": "json",                        +
+                                 "p": "tsvector"                     +
+                         }                                           +
+                 }                                                   +
+                 ,{                                                  +
+                         "kind": "insert",                           +
+                         "schema": "public",                         +
+                         "table": "table_with_unique",               +
+                         "changes": {                                +
+                                 "a": 3,                             +
+                                 "b": 1,                             +
+                                 "c": 2,                             +
+                                 "d": 3,                             +
+                                 "e": 3.540,                         +
+                                 "f": 876.563,                       +
+                                 "g": 1.23,                          +
+                                 "h": "teste     ",                  +
+                                 "i": "testando",                    +
+                                 "j": "um texto longo",              +
+                                 "k": "001110010101010",             +
+                                 "l": "Sat Nov 02 17:30:52 2013",    +
+                                 "m": "02-04-2013",                  +
+                                 "n": true,                          +
+                                 "o": "{ \"a\": 123 }",              +
+                                 "p": "'Old' 'Parr'"                 +
+                         },                                          +
+                         "columntypes": {                            +
+                                 "a": "smallint",                    +
+                                 "b": "smallint",                    +
+                                 "c": "integer",                     +
+                                 "d": "bigint",                      +
+                                 "e": "numeric(5,3)",                +
+                                 "f": "real",                        +
+                                 "g": "double precision",            +
+                                 "h": "character(10)",               +
+                                 "i": "character varying(30)",       +
+                                 "j": "text",                        +
+                                 "k": "bit varying(20)",             +
+                                 "l": "timestamp without time zone", +
+                                 "m": "date",                        +
+                                 "n": "boolean",                     +
+                                 "o": "json",                        +
+                                 "p": "tsvector"                     +
+                         }                                           +
+                 }                                                   +
+         ]                                                           +
+ }
+(1 row)
+
+-- UPDATE
+UPDATE table_without_pk SET f = -f WHERE b = 1;
+-- UPDATE: no pk change
+UPDATE table_with_pk SET f = -f WHERE b = 1;
+-- UPDATE: pk change
+UPDATE table_with_pk SET b = -b WHERE b = 1;
+-- UPDATE: unique
+UPDATE table_with_unique SET n = false WHERE b = 1;
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pretty-print', '1', 'use-key-value-hash', '1');
+WARNING:  table "table_without_pk" without primary key or replica identity is nothing
+WARNING:  table "table_with_unique" without primary key or replica identity is nothing
+                                 data                                 
+----------------------------------------------------------------------
+ {                                                                   +
+         "change": [                                                 +
+         ]                                                           +
+ }
+ {                                                                   +
+         "change": [                                                 +
+                 {                                                   +
+                         "kind": "update",                           +
+                         "schema": "public",                         +
+                         "table": "table_with_pk",                   +
+                         "changes": {                                +
+                                 "a": 2,                             +
+                                 "b": 1,                             +
+                                 "c": 2,                             +
+                                 "d": 3,                             +
+                                 "e": 3.540,                         +
+                                 "f": -876.563,                      +
+                                 "g": 1.23,                          +
+                                 "h": "teste     ",                  +
+                                 "i": "testando",                    +
+                                 "j": "um texto longo",              +
+                                 "k": "001110010101010",             +
+                                 "l": "Sat Nov 02 17:30:52 2013",    +
+                                 "m": "02-04-2013",                  +
+                                 "n": true,                          +
+                                 "o": "{ \"a\": 123 }",              +
+                                 "p": "'Old' 'Parr'"                 +
+                         },                                          +
+                         "columntypes": {                            +
+                                 "a": "smallint",                    +
+                                 "b": "smallint",                    +
+                                 "c": "integer",                     +
+                                 "d": "bigint",                      +
+                                 "e": "numeric(5,3)",                +
+                                 "f": "real",                        +
+                                 "g": "double precision",            +
+                                 "h": "character(10)",               +
+                                 "i": "character varying(30)",       +
+                                 "j": "text",                        +
+                                 "k": "bit varying(20)",             +
+                                 "l": "timestamp without time zone", +
+                                 "m": "date",                        +
+                                 "n": "boolean",                     +
+                                 "o": "json",                        +
+                                 "p": "tsvector"                     +
+                         },                                          +
+                         "oldkeys": {                                +
+                                 "b": 1,                             +
+                                 "c": 2,                             +
+                                 "d": 3                              +
+                         },                                          +
+                         "keytypes": {                               +
+                                 "b": "smallint",                    +
+                                 "c": "integer",                     +
+                                 "d": "bigint"                       +
+                         }                                           +
+                 }                                                   +
+         ]                                                           +
+ }
+ {                                                                   +
+         "change": [                                                 +
+                 {                                                   +
+                         "kind": "update",                           +
+                         "schema": "public",                         +
+                         "table": "table_with_pk",                   +
+                         "changes": {                                +
+                                 "a": 2,                             +
+                                 "b": -1,                            +
+                                 "c": 2,                             +
+                                 "d": 3,                             +
+                                 "e": 3.540,                         +
+                                 "f": -876.563,                      +
+                                 "g": 1.23,                          +
+                                 "h": "teste     ",                  +
+                                 "i": "testando",                    +
+                                 "j": "um texto longo",              +
+                                 "k": "001110010101010",             +
+                                 "l": "Sat Nov 02 17:30:52 2013",    +
+                                 "m": "02-04-2013",                  +
+                                 "n": true,                          +
+                                 "o": "{ \"a\": 123 }",              +
+                                 "p": "'Old' 'Parr'"                 +
+                         },                                          +
+                         "columntypes": {                            +
+                                 "a": "smallint",                    +
+                                 "b": "smallint",                    +
+                                 "c": "integer",                     +
+                                 "d": "bigint",                      +
+                                 "e": "numeric(5,3)",                +
+                                 "f": "real",                        +
+                                 "g": "double precision",            +
+                                 "h": "character(10)",               +
+                                 "i": "character varying(30)",       +
+                                 "j": "text",                        +
+                                 "k": "bit varying(20)",             +
+                                 "l": "timestamp without time zone", +
+                                 "m": "date",                        +
+                                 "n": "boolean",                     +
+                                 "o": "json",                        +
+                                 "p": "tsvector"                     +
+                         },                                          +
+                         "oldkeys": {                                +
+                                 "b": 1,                             +
+                                 "c": 2,                             +
+                                 "d": 3                              +
+                         },                                          +
+                         "keytypes": {                               +
+                                 "b": "smallint",                    +
+                                 "c": "integer",                     +
+                                 "d": "bigint"                       +
+                         }                                           +
+                 }                                                   +
+         ]                                                           +
+ }
+ {                                                                   +
+         "change": [                                                 +
+         ]                                                           +
+ }
+(4 rows)
+
+-- DELETE: no pk
+DELETE FROM table_without_pk WHERE b = 1;
+-- DELETE: pk
+DELETE FROM table_with_pk WHERE b = 1;
+-- DELETE: unique
+DELETE FROM table_with_unique WHERE b = 1;
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pretty-print', '1', 'use-key-value-hash', '1');
+WARNING:  table "table_without_pk" without primary key or replica identity is nothing
+WARNING:  table "table_with_unique" without primary key or replica identity is nothing
+        data         
+---------------------
+ {                  +
+         "change": [+
+         ]          +
+ }
+ {                  +
+         "change": [+
+         ]          +
+ }
+(2 rows)
+
+SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
+ ?column? 
+----------
+ stop
+(1 row)
+
