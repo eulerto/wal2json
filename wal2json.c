@@ -80,6 +80,8 @@ typedef struct
 
 	int			format_version;		/* support different formats */
 
+	int			format_version;		/* support different formats */
+
 	/*
 	 * LSN pointing to the end of commit record + 1 (txn->end_lsn)
 	 * It is useful for tools that wants a position to restart from.
@@ -288,6 +290,8 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 		data->actions.delete = true;
 		data->actions.truncate = true;
 	}
+
+	data->format_version = WAL2JSON_FORMAT_VERSION;
 
 	/* pretty print */
 	data->ht[0] = '\0';
