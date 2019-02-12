@@ -17,12 +17,16 @@
 #include "replication/logical.h"
 
 #include "utils/builtins.h"
+#include "utils/guc.h"
 #include "utils/json.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/pg_lsn.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
+
+#define	WAL2JSON_FORMAT_VERSION			1
+#define	WAL2JSON_FORMAT_MIN_VERSION		1
 
 PG_MODULE_MAGIC;
 
@@ -46,6 +50,8 @@ typedef struct
 
 	List		*filter_tables;		/* filter out tables */
 	List		*add_tables;		/* add only these tables */
+
+	int			format_version;		/* support different formats */
 
 	/*
 	 * LSN pointing to the end of commit record + 1 (txn->end_lsn)
@@ -142,6 +148,8 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 	data->include_not_null = false;
 	data->include_missing_toast = false;
 	data->filter_tables = NIL;
+
+	data->format_version = WAL2JSON_FORMAT_VERSION;
 
 	/* pretty print */
 	strcpy(data->ht, "");
@@ -319,17 +327,19 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 				elog(DEBUG1, "filter-tables argument is null");
 				data->filter_tables = NIL;
 			}
-
-			rawstr = pstrdup(strVal(elem->arg));
-			if (!string_to_SelectTable(rawstr, ',', &data->filter_tables))
+			else
 			{
+				rawstr = pstrdup(strVal(elem->arg));
+				if (!string_to_SelectTable(rawstr, ',', &data->filter_tables))
+				{
+					pfree(rawstr);
+					ereport(ERROR,
+							(errcode(ERRCODE_INVALID_NAME),
+							 errmsg("could not parse value \"%s\" for parameter \"%s\"",
+								 strVal(elem->arg), elem->defname)));
+				}
 				pfree(rawstr);
-				ereport(ERROR,
-						(errcode(ERRCODE_INVALID_NAME),
-						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
-							 strVal(elem->arg), elem->defname)));
 			}
-			pfree(rawstr);
 		}
 		else if (strcmp(elem->defname, "add-tables") == 0)
 		{
@@ -373,6 +383,31 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
 							 strVal(elem->arg), elem->defname)));
+    }
+		else if (strcmp(elem->defname, "format-version") == 0)
+		{
+			if (elem->arg == NULL)
+			{
+				elog(DEBUG1, "format-version argument is null");
+				data->format_version = WAL2JSON_FORMAT_VERSION;
+			}
+			else if (!parse_int(strVal(elem->arg), &data->format_version, 0, NULL))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
+							 strVal(elem->arg), elem->defname)));
+
+			if (data->format_version > WAL2JSON_FORMAT_VERSION)
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("client sent format_version=%d but we only support format %d or lower",
+						 data->format_version, WAL2JSON_FORMAT_VERSION)));
+
+			if (data->format_version < WAL2JSON_FORMAT_MIN_VERSION)
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("client sent format_version=%d but we only support format %d or higher",
+						 data->format_version, WAL2JSON_FORMAT_MIN_VERSION)));
 		}
 		else
 		{
@@ -383,6 +418,8 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 						elem->arg ? strVal(elem->arg) : "(null)")));
 		}
 	}
+
+	elog(DEBUG2, "format version: %d", data->format_version);
 }
 
 /* cleanup this plugin's resources */
