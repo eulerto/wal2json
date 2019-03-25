@@ -25,7 +25,7 @@
 #include "utils/rel.h"
 #include "utils/syscache.h"
 
-#define	WAL2JSON_FORMAT_VERSION			1
+#define	WAL2JSON_FORMAT_VERSION			2
 #define	WAL2JSON_FORMAT_MIN_VERSION		1
 
 PG_MODULE_MAGIC;
@@ -36,6 +36,7 @@ extern void	PGDLLEXPORT	_PG_output_plugin_init(OutputPluginCallbacks *cb);
 typedef struct
 {
 	MemoryContext context;
+	bool		include_transaction;	/* BEGIN and COMMIT objects (v2) */
 	bool		include_xids;		/* include transaction ids */
 	bool		include_timestamp;	/* include transaction timestamp */
 	bool		include_schemas;	/* qualify tables */
@@ -67,6 +68,13 @@ typedef struct
 	char		sp[2];				/* space, if pretty print */
 } JsonDecodingData;
 
+typedef enum
+{
+	PGOUTPUTJSON_NO,
+	PGOUTPUTJSON_IDENTITY,
+	PGOUTPUTJSON_PK
+} PGOutputJsonId;
+
 typedef struct SelectTable
 {
 	char	*schemaname;
@@ -94,6 +102,39 @@ static void pg_decode_message(LogicalDecodingContext *ctx,
 
 static bool parse_table_identifier(List *qualified_tables, char separator, List **select_tables);
 static bool string_to_SelectTable(char *rawstring, char separator, List **select_tables);
+
+/* version 1 */
+static void pg_decode_begin_txn_v1(LogicalDecodingContext *ctx,
+					ReorderBufferTXN *txn);
+static void pg_decode_commit_txn_v1(LogicalDecodingContext *ctx,
+					 ReorderBufferTXN *txn, XLogRecPtr commit_lsn);
+static void pg_decode_change_v1(LogicalDecodingContext *ctx,
+				 ReorderBufferTXN *txn, Relation rel,
+				 ReorderBufferChange *change);
+#if	PG_VERSION_NUM >= 90600
+static void pg_decode_message_v1(LogicalDecodingContext *ctx,
+					ReorderBufferTXN *txn, XLogRecPtr lsn,
+					bool transactional, const char *prefix,
+					Size content_size, const char *content);
+#endif
+
+/* version 2 */
+static void pg_decode_begin_txn_v2(LogicalDecodingContext *ctx,
+					ReorderBufferTXN *txn);
+static void pg_decode_commit_txn_v2(LogicalDecodingContext *ctx,
+					 ReorderBufferTXN *txn, XLogRecPtr commit_lsn);
+static void pg_decode_write_value(LogicalDecodingContext *ctx, Datum value, bool isnull, Oid typid);
+static void pg_decode_write_tuple(LogicalDecodingContext *ctx, Relation relation, HeapTuple tuple, PGOutputJsonId id);
+static void pg_decode_write_change(LogicalDecodingContext *ctx, const char *action, Relation relation, HeapTuple oldtuple, HeapTuple newtuple, ReorderBufferTXN *txn, XLogRecPtr lsn);
+static void pg_decode_change_v2(LogicalDecodingContext *ctx,
+				 ReorderBufferTXN *txn, Relation rel,
+				 ReorderBufferChange *change);
+#if	PG_VERSION_NUM >= 90600
+static void pg_decode_message_v2(LogicalDecodingContext *ctx,
+					ReorderBufferTXN *txn, XLogRecPtr lsn,
+					bool transactional, const char *prefix,
+					Size content_size, const char *content);
+#endif
 
 void
 _PG_init(void)
@@ -135,6 +176,7 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 										ALLOCSET_DEFAULT_MAXSIZE
 #endif
                                         );
+	data->include_transaction = true;
 	data->include_xids = false;
 	data->include_timestamp = false;
 	data->include_schemas = true;
@@ -172,7 +214,18 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 
 		Assert(elem->arg == NULL || IsA(elem->arg, String));
 
-		if (strcmp(elem->defname, "include-xids") == 0)
+		if (strcmp(elem->defname, "include-transaction") == 0)
+		{
+			/* if option value is NULL then assume that value is true */
+			if (elem->arg == NULL)
+				data->include_transaction = true;
+			else if (!parse_bool(strVal(elem->arg), &data->include_transaction))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
+							 strVal(elem->arg), elem->defname)));
+		}
+		else if (strcmp(elem->defname, "include-xids") == 0)
 		{
 			/* If option does not provide a value, it means its value is true */
 			if (elem->arg == NULL)
@@ -423,6 +476,19 @@ pg_decode_begin_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 {
 	JsonDecodingData *data = ctx->output_plugin_private;
 
+	if (data->format_version == 2)
+		pg_decode_begin_txn_v2(ctx, txn);
+	else if (data->format_version == 1)
+		pg_decode_begin_txn_v1(ctx, txn);
+	else
+		elog(ERROR, "format version %d is not supported", data->format_version);
+}
+
+static void
+pg_decode_begin_txn_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
+{
+	JsonDecodingData *data = ctx->output_plugin_private;
+
 	data->nr_changes = 0;
 
 	/* Transaction starts */
@@ -451,9 +517,52 @@ pg_decode_begin_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 		OutputPluginWrite(ctx, true);
 }
 
+static void
+pg_decode_begin_txn_v2(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
+{
+	JsonDecodingData *data = ctx->output_plugin_private;
+
+	elog(DEBUG3, "pg_decode_begin_txn_v2 called");
+
+	/* don't include BEGIN object */
+	if (!data->include_transaction)
+		return;
+
+	OutputPluginPrepareWrite(ctx, true);
+	appendStringInfoString(ctx->out, "{\"action\":\"B\"");
+	if (data->include_xids)
+		appendStringInfo(ctx->out, ",\"xid\":%u", txn->xid);
+	if (data->include_timestamp)
+			appendStringInfo(ctx->out, ",\"timestamp\":\"%s\"", timestamptz_to_str(txn->commit_time));
+
+	if (data->include_lsn)
+	{
+		char *lsn_str = DatumGetCString(DirectFunctionCall1(pg_lsn_out, txn->final_lsn));
+		appendStringInfo(ctx->out, ",\"lsn\":\"%s\"", lsn_str);
+		pfree(lsn_str);
+	}
+
+	appendStringInfoChar(ctx->out, '}');
+	OutputPluginWrite(ctx, true);
+}
+
 /* COMMIT callback */
 static void
 pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
+					 XLogRecPtr commit_lsn)
+{
+	JsonDecodingData *data = ctx->output_plugin_private;
+
+	if (data->format_version == 2)
+		pg_decode_commit_txn_v2(ctx, txn, commit_lsn);
+	else if (data->format_version == 1)
+		pg_decode_commit_txn_v1(ctx, txn, commit_lsn);
+	else
+		elog(ERROR, "format version %d is not supported", data->format_version);
+}
+
+static void
+pg_decode_commit_txn_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 					 XLogRecPtr commit_lsn)
 {
 	JsonDecodingData *data = ctx->output_plugin_private;
@@ -475,6 +584,36 @@ pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 
 	appendStringInfo(ctx->out, "%s]%s}", data->ht, data->nl);
 
+	OutputPluginWrite(ctx, true);
+}
+
+static void
+pg_decode_commit_txn_v2(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
+					 XLogRecPtr commit_lsn)
+{
+	JsonDecodingData *data = ctx->output_plugin_private;
+
+	elog(DEBUG3, "pgoutputjson_commit_txn called");
+
+	/* don't include COMMIT object */
+	if (!data->include_transaction)
+		return;
+
+	OutputPluginPrepareWrite(ctx, true);
+	appendStringInfoString(ctx->out, "{\"action\":\"C\"");
+	if (data->include_xids)
+		appendStringInfo(ctx->out, ",\"xid\":%u", txn->xid);
+	if (data->include_timestamp)
+			appendStringInfo(ctx->out, ",\"timestamp\":\"%s\"", timestamptz_to_str(txn->commit_time));
+
+	if (data->include_lsn)
+	{
+		char *lsn_str = DatumGetCString(DirectFunctionCall1(pg_lsn_out, commit_lsn));
+		appendStringInfo(ctx->out, ",\"lsn\":\"%s\"", lsn_str);
+		pfree(lsn_str);
+	}
+
+	appendStringInfoChar(ctx->out, '}');
 	OutputPluginWrite(ctx, true);
 }
 
@@ -781,6 +920,20 @@ static void
 pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 				 Relation relation, ReorderBufferChange *change)
 {
+	JsonDecodingData *data = ctx->output_plugin_private;
+
+	if (data->format_version == 2)
+		pg_decode_change_v2(ctx, txn, relation, change);
+	else if (data->format_version == 1)
+		pg_decode_change_v1(ctx, txn, relation, change);
+	else
+		elog(ERROR, "format version %d is not supported", data->format_version);
+}
+
+static void
+pg_decode_change_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
+				 Relation relation, ReorderBufferChange *change)
+{
 	JsonDecodingData *data;
 	Form_pg_class class_form;
 	TupleDesc	tupdesc;
@@ -1037,10 +1190,422 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 		OutputPluginWrite(ctx, true);
 }
 
+static void
+pg_decode_write_value(LogicalDecodingContext *ctx, Datum value, bool isnull, Oid typid)
+{
+	Oid		typoutfunc;
+	bool	isvarlena;
+	char	*outstr;
+
+	if (isnull)
+	{
+		appendStringInfoString(ctx->out, "null");
+		return;
+	}
+
+	/* get type information and call its output function */
+	getTypeOutputInfo(typid, &typoutfunc, &isvarlena);
+
+	/* XXX dead code? check is one level above. */
+	if (isvarlena && VARATT_IS_EXTERNAL_ONDISK(value))
+	{
+		elog(DEBUG1, "unchanged TOAST Datum");
+		return;
+	}
+
+	/* if value is varlena, detoast Datum */
+	if (isvarlena)
+	{
+		Datum	detoastedval;
+
+		detoastedval = PointerGetDatum(PG_DETOAST_DATUM(value));
+		outstr = OidOutputFunctionCall(typoutfunc, detoastedval);
+	}
+	else
+	{
+		outstr = OidOutputFunctionCall(typoutfunc, value);
+	}
+
+	/*
+	 * Data types are printed with quotes unless they are number, true, false,
+	 * null, an array or an object.
+	 *
+	 * The NaN an Infinity are not valid JSON symbols. Hence, regardless of
+	 * sign they are represented as the string null.
+	 */
+	switch (typid)
+	{
+		case INT2OID:
+		case INT4OID:
+		case INT8OID:
+		case OIDOID:
+		case FLOAT4OID:
+		case FLOAT8OID:
+		case NUMERICOID:
+			if (pg_strncasecmp(outstr, "NaN", 3) == 0 ||
+					pg_strncasecmp(outstr, "Infinity", 8) == 0 ||
+					pg_strncasecmp(outstr, "-Infinity", 9) == 0)
+			{
+				appendStringInfoString(ctx->out, "null");
+				elog(DEBUG1, "special value: %s", outstr);
+			}
+			else if (strspn(outstr, "0123456789+-eE.") == strlen(outstr))
+				appendStringInfo(ctx->out, "%s", outstr);
+			else
+				elog(ERROR, "%s is not a number", outstr);
+			break;
+		case BOOLOID:
+			if (strcmp(outstr, "t") == 0)
+				appendStringInfoString(ctx->out, "true");
+			else
+				appendStringInfoString(ctx->out, "false");
+			break;
+		case BYTEAOID:
+			/* string is "\x54617069727573", start after \x */
+			escape_json(ctx->out, (outstr + 2));
+			break;
+		default:
+			escape_json(ctx->out, outstr);
+			break;
+	}
+
+	pfree(outstr);
+}
+
+static void
+pg_decode_write_tuple(LogicalDecodingContext *ctx, Relation relation, HeapTuple tuple, PGOutputJsonId id)
+{
+	JsonDecodingData	*data;
+	TupleDesc			tupdesc;
+	Relation			idxrel;
+	TupleDesc			idxdesc = NULL;
+	int					i;
+	Datum				*values;
+	bool				*nulls;
+	bool				need_sep = false;
+
+	data = ctx->output_plugin_private;
+
+	tupdesc = RelationGetDescr(relation);
+	values = (Datum *) palloc(tupdesc->natts * sizeof(Datum));
+	nulls = (bool *) palloc(tupdesc->natts * sizeof(bool));
+
+	/* break down the tuple into fields */
+	heap_deform_tuple(tuple, tupdesc, values, nulls);
+
+	/* figure out replica identity columns */
+	if (id == PGOUTPUTJSON_IDENTITY)
+	{
+		if (relation->rd_replidindex != InvalidOid)		/* REPLICA IDENTITY INDEX */
+		{
+			idxrel = RelationIdGetRelation(relation->rd_replidindex);
+			idxdesc = RelationGetDescr(idxrel);
+		}
+		else if (relation->rd_pkindex != InvalidOid)	/* REPLICA IDENTITY DEFAULT + PK */
+		{
+			idxrel = RelationIdGetRelation(relation->rd_pkindex);
+			idxdesc = RelationGetDescr(idxrel);
+		}
+		else if (relation->rd_rel->relreplident != REPLICA_IDENTITY_FULL)
+			elog(ERROR, "table does not have primary key or replica identity");
+	}
+
+	if (id == PGOUTPUTJSON_PK)
+	{
+		idxrel = RelationIdGetRelation(relation->rd_pkindex);
+		idxdesc = RelationGetDescr(idxrel);
+	}
+
+	for (i = 0; i < tupdesc->natts; i++)
+	{
+		Form_pg_attribute	attr;
+		int					j;
+		bool				found = false;
+		char				*type_str;
+
+		attr = TupleDescAttr(tupdesc, i);
+
+		/* skip dropped or system columns */
+		if (attr->attisdropped || attr->attnum < 0)
+			continue;
+
+		/*
+		 * oldtuple contains NULL on those values that are not defined by
+		 * REPLICA IDENTITY. In this case, print only non-null values.
+		 */
+		if (nulls[i] && id != PGOUTPUTJSON_PK && id != PGOUTPUTJSON_IDENTITY)
+			continue;
+
+		/* don't send unchanged TOAST Datum */
+		if (!nulls[i] && attr->attlen == -1 && VARATT_IS_EXTERNAL_ONDISK(values[i]))
+			continue;
+
+		/*
+		 * Is it PK or replica identity column? Print only those columns or all
+		 * columns if REPLICA IDENTITY FULL is set.
+		 */
+		if (id == PGOUTPUTJSON_PK || (id == PGOUTPUTJSON_IDENTITY && relation->rd_rel->relreplident != REPLICA_IDENTITY_FULL))
+		{
+			for (j = 0; j < idxdesc->natts; j++)
+			{
+				Form_pg_attribute	iattr;
+
+				iattr = TupleDescAttr(idxdesc, j);
+				if (strcmp(NameStr(attr->attname), NameStr(iattr->attname)) == 0)
+					found = true;
+			}
+
+			if (!found)
+				continue;
+		}
+
+		if (need_sep)
+			appendStringInfoChar(ctx->out, ',');
+		need_sep = true;
+
+		appendStringInfoChar(ctx->out, '{');
+		appendStringInfoString(ctx->out, "\"name\":");
+		escape_json(ctx->out, NameStr(attr->attname));
+
+		/* type name (with typmod, if available) */
+		if (data->include_types)
+		{
+			type_str = format_type_with_typemod(attr->atttypid, attr->atttypmod);
+			appendStringInfoString(ctx->out, ",\"type\":");
+			appendStringInfo(ctx->out, "\"%s\"", type_str);
+			pfree(type_str);
+		}
+
+		appendStringInfoString(ctx->out, ",\"value\":");
+		pg_decode_write_value(ctx, values[i], nulls[i], attr->atttypid);
+
+		/*
+		 * Print optional for columns. This information is redundant for
+		 * primary key and replica identity (index) because all attributes are
+		 * not null.
+		 */
+		if (id != PGOUTPUTJSON_PK && id != PGOUTPUTJSON_IDENTITY && data->include_not_null)
+		{
+			if (attr->attnotnull)
+				appendStringInfoString(ctx->out, ",\"optional\":false");
+			else
+				appendStringInfoString(ctx->out, ",\"optional\":true");
+		}
+
+		appendStringInfoChar(ctx->out, '}');
+	}
+
+	pfree(values);
+	pfree(nulls);
+}
+
+static void
+pg_decode_write_change(LogicalDecodingContext *ctx, const char *action, Relation relation, HeapTuple oldtuple, HeapTuple newtuple, ReorderBufferTXN *txn, XLogRecPtr lsn)
+{
+	JsonDecodingData *data = ctx->output_plugin_private;
+
+	/* make sure rd_pkindex and rd_replidindex are set */
+	RelationGetIndexList(relation);
+
+	OutputPluginPrepareWrite(ctx, true);
+
+	appendStringInfoChar(ctx->out, '{');
+
+	appendStringInfo(ctx->out, "\"action\":\"%s\"", action);
+
+	if (data->include_xids)
+		appendStringInfo(ctx->out, ",\"xid\":%u", txn->xid);
+
+	if (data->include_timestamp)
+		appendStringInfo(ctx->out, ",\"timestamp\":\"%s\"", timestamptz_to_str(txn->commit_time));
+
+	if (data->include_lsn)
+	{
+		char *lsn_str = DatumGetCString(DirectFunctionCall1(pg_lsn_out, lsn));
+		appendStringInfo(ctx->out, ",\"lsn\":\"%s\"", lsn_str);
+		pfree(lsn_str);
+	}
+
+	if (data->include_schemas)
+		appendStringInfo(ctx->out, ",\"schema\":\"%s\"", get_namespace_name(RelationGetNamespace(relation)));
+
+	appendStringInfo(ctx->out, ",\"table\":\"%s\"", RelationGetRelationName(relation));
+
+	/* print new tuple (INSERT, UPDATE) */
+	if (newtuple)
+	{
+		appendStringInfoString(ctx->out, ",\"columns\":[");
+		pg_decode_write_tuple(ctx, relation, newtuple, PGOUTPUTJSON_NO);
+		appendStringInfoChar(ctx->out, ']');
+	}
+
+	/*
+	 * Print old tuple (UPDATE, DELETE)
+	 *
+	 * old tuple is available when:
+	 * (i) primary key changes;
+	 * (ii) replica identity is index and one of the indexed columns changes;
+	 * (iii) replica identity is full.
+	 *
+	 * If old tuple is not available (cases (i) and (ii)) identity is obtained
+	 * from new tuple (because it doesn't change).
+	 *
+	 */
+	if (oldtuple)
+	{
+		appendStringInfoString(ctx->out, ",\"identity\":[");
+		pg_decode_write_tuple(ctx, relation, oldtuple, PGOUTPUTJSON_IDENTITY);
+		appendStringInfoChar(ctx->out, ']');
+	}
+	else
+	{
+		/*
+		 * Old tuple is not available, however, identity can be obtained from
+		 * new tuple (because it doesn't change).
+		 */
+		if (strcmp(action, "U") == 0)
+		{
+			elog(DEBUG2, "old tuple is null on UPDATE");
+
+			if (relation->rd_pkindex != InvalidOid || relation->rd_replidindex != InvalidOid)
+			{
+				elog(DEBUG1, "REPLICA IDENTITY: obtain old tuple using new tuple");
+				appendStringInfoString(ctx->out, ",\"identity\":[");
+				pg_decode_write_tuple(ctx, relation, newtuple, PGOUTPUTJSON_IDENTITY);
+				appendStringInfoChar(ctx->out, ']');
+			}
+			else
+			{
+				/* old tuple is not available nad can't be obtained, report it */
+				elog(WARNING, "no old tuple data for UPDATE in table \"%s\".\"%s\"", get_namespace_name(RelationGetNamespace(relation)), RelationGetRelationName(relation));
+			}
+		}
+
+		/* old tuple is not available and can't be obtained, report it */
+		if (strcmp(action, "D") == 0)
+		{
+			elog(WARNING, "no old tuple data for DELETE in table \"%s\".\"%s\"", get_namespace_name(RelationGetNamespace(relation)), RelationGetRelationName(relation));
+		}
+	}
+
+	appendStringInfoChar(ctx->out, '}');
+
+	OutputPluginWrite(ctx, true);
+}
+
+static void
+pg_decode_change_v2(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
+				 Relation relation, ReorderBufferChange *change)
+{
+	JsonDecodingData *data = ctx->output_plugin_private;
+	MemoryContext old;
+
+	char	*schemaname;
+	char	*tablename;
+
+	elog(DEBUG3, "pgdecode_change_v2 called");
+
+	/* avoid leaking memory by using and resetting our own context */
+	old = MemoryContextSwitchTo(data->context);
+
+	/* schema and table names are used for chosen tables */
+	schemaname = get_namespace_name(RelationGetNamespace(relation));
+	tablename = RelationGetRelationName(relation);
+
+	/* Exclude tables, if available */
+	if (list_length(data->filter_tables) > 0)
+	{
+		ListCell	*lc;
+
+		foreach(lc, data->filter_tables)
+		{
+			SelectTable	*t = lfirst(lc);
+
+			if (t->allschemas || strcmp(t->schemaname, schemaname) == 0)
+			{
+				if (t->alltables || strcmp(t->tablename, tablename) == 0)
+				{
+					elog(DEBUG2, "\"%s\".\"%s\" was filtered out",
+								((t->allschemas) ? "*" : t->schemaname),
+								((t->alltables) ? "*" : t->tablename));
+					return;
+				}
+			}
+		}
+	}
+
+	/* Add tables */
+	if (list_length(data->add_tables) > 0)
+	{
+		ListCell	*lc;
+		bool		skip = true;
+
+		/* all tables in all schemas are added by default */
+		foreach(lc, data->add_tables)
+		{
+			SelectTable	*t = lfirst(lc);
+
+			if (t->allschemas || strcmp(t->schemaname, schemaname) == 0)
+			{
+				if (t->alltables || strcmp(t->tablename, tablename) == 0)
+				{
+					elog(DEBUG2, "\"%s\".\"%s\" was added",
+								((t->allschemas) ? "*" : t->schemaname),
+								((t->alltables) ? "*" : t->tablename));
+					skip = false;
+				}
+			}
+		}
+
+		/* table was not found */
+		if (skip)
+			return;
+	}
+
+	switch (change->action)
+	{
+		case REORDER_BUFFER_CHANGE_INSERT:
+			pg_decode_write_change(ctx, "I", relation, NULL, &change->data.tp.newtuple->tuple, txn, change->lsn);
+			break;
+		case REORDER_BUFFER_CHANGE_UPDATE:
+			if (change->data.tp.oldtuple)
+				pg_decode_write_change(ctx, "U", relation, &change->data.tp.oldtuple->tuple, &change->data.tp.newtuple->tuple, txn, change->lsn);
+			else
+				pg_decode_write_change(ctx, "U", relation, NULL, &change->data.tp.newtuple->tuple, txn, change->lsn);
+			break;
+		case REORDER_BUFFER_CHANGE_DELETE:
+			if (change->data.tp.oldtuple)
+				pg_decode_write_change(ctx, "D", relation, &change->data.tp.oldtuple->tuple, NULL, txn, change->lsn);
+			else
+				pg_decode_write_change(ctx, "D", relation, NULL, NULL, txn, change->lsn);
+			break;
+		default:
+			Assert(false);
+	}
+
+	MemoryContextSwitchTo(old);
+	MemoryContextReset(data->context);
+}
+
 #if	PG_VERSION_NUM >= 90600
 /* Callback for generic logical decoding messages */
 static void
 pg_decode_message(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
+		XLogRecPtr lsn, bool transactional, const char *prefix, Size
+		content_size, const char *content)
+{
+	JsonDecodingData *data = ctx->output_plugin_private;
+
+	if (data->format_version == 2)
+		pg_decode_message_v2(ctx, txn, lsn, transactional, prefix, content_size, content);
+	else if (data->format_version == 1)
+		pg_decode_message_v1(ctx, txn, lsn, transactional, prefix, content_size, content);
+	else
+		elog(ERROR, "format version %d is not supported", data->format_version);
+}
+
+static void
+pg_decode_message_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 		XLogRecPtr lsn, bool transactional, const char *prefix, Size
 		content_size, const char *content)
 {
@@ -1107,6 +1672,74 @@ pg_decode_message(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 
 	if (data->write_in_chunks || !transactional)
 		OutputPluginWrite(ctx, true);
+}
+
+static void
+pg_decode_message_v2(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
+		XLogRecPtr lsn, bool transactional, const char *prefix, Size
+		content_size, const char *content)
+{
+	JsonDecodingData	*data = ctx->output_plugin_private;
+	MemoryContext		old;
+	char				*content_str;
+
+	elog(DEBUG3, "pgoutputjson_generic_message called");
+
+	/* Avoid leaking memory by using and resetting our own context */
+	old = MemoryContextSwitchTo(data->context);
+
+	OutputPluginPrepareWrite(ctx, true);
+	appendStringInfoChar(ctx->out, '{');
+	appendStringInfoString(ctx->out, "\"action\":\"M\"");
+
+	if (data->include_xids)
+	{
+		/*
+		 * Non-transactional messages can have no xid, hence, assigns null in
+		 * this case.  Assigns null for xid in non-transactional messages
+		 * because in some cases there isn't an assigned xid.
+		 * This same logic is valid for timestamp and origin.
+		 */
+		if (transactional)
+			appendStringInfo(ctx->out, ",\"xid\":%u", txn->xid);
+		else
+			appendStringInfoString(ctx->out, ",\"xid\":null");
+	}
+
+	if (data->include_timestamp)
+	{
+		if (transactional)
+			appendStringInfo(ctx->out, ",\"timestamp\":\"%s\"", timestamptz_to_str(txn->commit_time));
+		else
+			appendStringInfoString(ctx->out, ",\"timestamp\":null");
+	}
+
+	if (data->include_lsn)
+	{
+		char *lsn_str = DatumGetCString(DirectFunctionCall1(pg_lsn_out, lsn));
+		appendStringInfo(ctx->out, ",\"lsn\":\"%s\"", lsn_str);
+		pfree(lsn_str);
+	}
+
+	if (transactional)
+		appendStringInfoString(ctx->out, ",\"transactional\":true");
+	else
+		appendStringInfoString(ctx->out, ",\"transactional\":false");
+
+	appendStringInfoString(ctx->out, ",\"prefix\":");
+	escape_json(ctx->out, prefix);
+
+	appendStringInfoString(ctx->out, ",\"content\":");
+	content_str = (char *) palloc0((content_size + 1) * sizeof(char));
+	strncpy(content_str, content, content_size);
+	escape_json(ctx->out, content_str);
+	pfree(content_str);
+
+	appendStringInfoChar(ctx->out, '}');
+	OutputPluginWrite(ctx, true);
+
+	MemoryContextSwitchTo(old);
+	MemoryContextReset(data->context);
 }
 #endif
 
