@@ -50,7 +50,7 @@ You need to set up the following parameters in postgresql.conf
 ```
 wal_level = logical
 max_replication_slots = 1
-wal_sender_timeoute = 2000
+wal_sender_timeout = 2000
 ```
 
 After changing these parameters, a restart is needed.
