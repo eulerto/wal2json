@@ -76,6 +76,7 @@ Parameters
 * `filter-tables`: exclude rows from the specified tables. Default is empty which means that no table will be filtered. It is a comma separated value. The tables should be schema-qualified. `*.foo` means table foo in all schemas and `bar.*` means all tables in schema bar. Special characters (space, single quote, comma, period, asterisk) must be escaped with backslash. Schema and table are case-sensitive. Table `"public"."Foo bar"` should be specified as `public.Foo\ bar`.
 * `add-tables`: include only rows from the specified tables. Default is all tables from all schemas. It has the same rules from `filter-tables`.
 * `format-version`: defines which format to use. Default is _1_.
+* `include-missing-toast`: include a list of columns which are not included in return data since they are toasted and were not updated.  Default is _false_
 
 Examples
 ========
