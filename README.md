@@ -87,10 +87,20 @@ pg_recvlogical
 
 Besides the configuration above, it is necessary to configure a replication connection to use pg_recvlogical.
 
-First, add a replication connection rule at pg_hba.conf:
+First, add a replication connection rule at __pg_hba.conf__:
+
+Postgres v9:
 
 ```
 local    replication     myuser                     trust
+```
+
+Postgres v10+:
+
+> Since Postgres v10 logical replication matches a normal entry with a database name or keywords such as `all` instead of the `replication` keyword.
+
+```
+local    all     myuser                     trust
 ```
 
 Also, set max_wal_senders at postgresql.conf:
