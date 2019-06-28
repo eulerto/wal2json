@@ -73,6 +73,7 @@ Parameters
 * `write-in-chunks`: write after every change instead of every changeset. Default is _false_.
 * `include-lsn`: add _nextlsn_ to each changeset. Default is _false_.
 * `include-unchanged-toast` (deprecated): add TOAST value even if it was not modified. Since TOAST values are usually large, this option could save IO and bandwidth if it is disabled. Default is _true_.
+* `skip-empty-xacts` ignore empty transactions. Default is _false_.
 * `filter-tables`: exclude rows from the specified tables. Default is empty which means that no table will be filtered. It is a comma separated value. The tables should be schema-qualified. `*.foo` means table foo in all schemas and `bar.*` means all tables in schema bar. Special characters (space, single quote, comma, period, asterisk) must be escaped with backslash. Schema and table are case-sensitive. Table `"public"."Foo bar"` should be specified as `public.Foo\ bar`.
 * `add-tables`: include only rows from the specified tables. Default is all tables from all schemas. It has the same rules from `filter-tables`.
 * `format-version`: defines which format to use. Default is _1_.

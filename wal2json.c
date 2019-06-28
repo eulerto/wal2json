@@ -43,6 +43,7 @@ typedef struct
 	bool		include_type_oids;	/* include data type oids */
 	bool		include_typmod;		/* include typmod in types */
 	bool		include_not_null;	/* include not-null constraints */
+	bool		skip_empty_xacts;	/* skip empty transactions */
 
 	bool		pretty_print;		/* pretty-print JSON? */
 	bool		write_in_chunks;	/* write in chunks? */
@@ -141,6 +142,7 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 	data->include_types = true;
 	data->include_type_oids = false;
 	data->include_typmod = true;
+	data->skip_empty_xacts = false;
 	data->pretty_print = false;
 	data->write_in_chunks = false;
 	data->include_lsn = false;
@@ -259,6 +261,19 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 				data->include_not_null = true;
 			}
 			else if (!parse_bool(strVal(elem->arg), &data->include_not_null))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
+							 strVal(elem->arg), elem->defname)));
+		}
+		else if (strcmp(elem->defname, "skip-empty-xacts") == 0) 
+		{
+			if (elem->arg == NULL)
+			{
+				elog(DEBUG1, "skip-empty-xacts argument is null");
+				data->skip_empty_xacts = false;
+			}
+			else if (!parse_bool(strVal(elem->arg), &data->skip_empty_xacts))
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
@@ -417,14 +432,11 @@ pg_decode_shutdown(LogicalDecodingContext *ctx)
 	MemoryContextDelete(data->context);
 }
 
-/* BEGIN callback */
-static void
-pg_decode_begin_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
+/* Write transaction header (xid, nextlsn...) */
+static void output_begin(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 {
 	JsonDecodingData *data = ctx->output_plugin_private;
-
-	data->nr_changes = 0;
-
+	
 	/* Transaction starts */
 	OutputPluginPrepareWrite(ctx, true);
 
@@ -451,12 +463,27 @@ pg_decode_begin_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 		OutputPluginWrite(ctx, true);
 }
 
+/* BEGIN callback */
+static void
+pg_decode_begin_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
+{
+	JsonDecodingData *data = ctx->output_plugin_private;
+
+	data->nr_changes = 0;
+
+	if (!data->skip_empty_xacts)
+		output_begin(ctx, txn);
+}
+
 /* COMMIT callback */
 static void
 pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 					 XLogRecPtr commit_lsn)
 {
 	JsonDecodingData *data = ctx->output_plugin_private;
+
+	if (data->skip_empty_xacts && data->nr_changes == 0)
+		return;
 
 	if (txn->has_catalog_changes)
 		elog(DEBUG2, "txn has catalog changes: yes");
@@ -925,6 +952,9 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 
 	/* Change counter */
 	data->nr_changes++;
+
+	if (data->skip_empty_xacts && data->nr_changes == 1)
+		output_begin(ctx, txn);
 
 	/* if we don't write in chunks, we need a newline here */
 	if (!data->write_in_chunks)
