@@ -12,7 +12,7 @@ SELECT 'init' FROM pg_create_logical_replication_slot('regression_slot', 'wal2js
  init
 (1 row)
 
--- New slot should have zero changes
+-- Now slot should have zero changes
 SELECT count(*) = 0 FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
  ?column? 
 ----------
@@ -21,17 +21,33 @@ SELECT count(*) = 0 FROM pg_logical_slot_get_changes('regression_slot', NULL, NU
 
 -- Refreshing Materialized Views generates empty transactions
 REFRESH MATERIALIZED VIEW tbl_view;
--- New slot should have one change
+-- Now slot should have one change
 SELECT count(*) = 1 FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL);
  ?column? 
 ----------
  t
 (1 row)
 
--- Refreshing Materialized Views generates empty transactions
 REFRESH MATERIALIZED VIEW tbl_view;
 -- The plugin should ignore the empty transaction
 SELECT count(*) = 0 FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'skip-empty-xacts', '1');
+ ?column? 
+----------
+ t
+(1 row)
+
+REFRESH MATERIALIZED VIEW tbl_view;
+-- Writing transactions in chunks should work too
+SELECT count(*) = 0 FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 
+    'skip-empty-xacts', '1', 'write-in-chunks', '1');
+ ?column? 
+----------
+ t
+(1 row)
+
+REFRESH MATERIALIZED VIEW tbl_view;
+-- Write in chunks still works
+SELECT count(*) = 2 FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'write-in-chunks', '1');
  ?column? 
 ----------
  t
