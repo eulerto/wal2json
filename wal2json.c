@@ -574,6 +574,8 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 		initStringInfo(&coltypeoids);
 	if (data->include_not_null)
 		initStringInfo(&colnotnulls);
+	if (data->include_missing_toast)
+		initStringInfo(&missingtoastcols);
 	initStringInfo(&colvalues);
 
 	/*
@@ -598,6 +600,8 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 			appendStringInfo(&coltypeoids, "%s%s%s\"columntypeoids\":%s[", data->ht, data->ht, data->ht, data->sp);
 		if (data->include_not_null)
 			appendStringInfo(&colnotnulls, "%s%s%s\"columnoptionals\":%s[", data->ht, data->ht, data->ht, data->sp);
+		if (data->include_missing_toast)
+			appendStringInfo(&missingtoastcols, "%s%s%s\"missingtoastcols\":%s[", data->ht, data->ht, data->ht, data->sp);
 		appendStringInfo(&colvalues, "%s%s%s\"columnvalues\":%s[", data->ht, data->ht, data->ht, data->sp);
 	}
 
@@ -830,6 +834,8 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 		appendStringInfoString(ctx->out, coltypeoids.data);
 	if (data->include_not_null)
 		appendStringInfoString(ctx->out, colnotnulls.data);
+	if (data->include_missing_toast)
+		appendStringInfoString(ctx->out, missingtoastcols.data);
 	appendStringInfoString(ctx->out, colvalues.data);
 
 	pfree(colnames.data);
