@@ -43,6 +43,7 @@ typedef struct
 	bool		include_type_oids;	/* include data type oids */
 	bool		include_typmod;		/* include typmod in types */
 	bool		include_not_null;	/* include not-null constraints */
+	bool		include_missing_toast; /* include list of missing toast columns */
 
 	bool		pretty_print;		/* pretty-print JSON? */
 	bool		write_in_chunks;	/* write in chunks? */
@@ -148,6 +149,7 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 	data->write_in_chunks = false;
 	data->include_lsn = false;
 	data->include_not_null = false;
+	data->include_missing_toast = false;
 	data->filter_tables = NIL;
 	data->filter_msg_prefixes = NIL;
 	data->add_msg_prefixes = NIL;
@@ -374,6 +376,19 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 				pfree(rawstr);
 			}
 		}
+		else if (strcmp(elem->defname, "include-missing-toast") == 0)
+		{
+			if (elem->arg == NULL)
+			{
+				elog(DEBUG1, "include-missing-toast argument is null");
+				data->include_missing_toast = true;
+			}
+			else if (!parse_bool(strVal(elem->arg), &data->include_missing_toast))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
+							 strVal(elem->arg), elem->defname)));
+    	}
 		else if (strcmp(elem->defname, "filter-msg-prefixes") == 0)
 		{
 			char	*rawstr;
@@ -543,11 +558,13 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 	int					natt;
 
 	StringInfoData		colnames;
+	StringInfoData		missingtoastcols;
 	StringInfoData		coltypes;
 	StringInfoData		coltypeoids;
 	StringInfoData		colnotnulls;
 	StringInfoData		colvalues;
 	char				comma[3] = "";
+	char				toastcomma[3] = "";
 
 	data = ctx->output_plugin_private;
 
@@ -557,6 +574,8 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 		initStringInfo(&coltypeoids);
 	if (data->include_not_null)
 		initStringInfo(&colnotnulls);
+	if (data->include_missing_toast)
+		initStringInfo(&missingtoastcols);
 	initStringInfo(&colvalues);
 
 	/*
@@ -581,6 +600,8 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 			appendStringInfo(&coltypeoids, "%s%s%s\"columntypeoids\":%s[", data->ht, data->ht, data->ht, data->sp);
 		if (data->include_not_null)
 			appendStringInfo(&colnotnulls, "%s%s%s\"columnoptionals\":%s[", data->ht, data->ht, data->ht, data->sp);
+		if (data->include_missing_toast)
+			appendStringInfo(&missingtoastcols, "%s%s%s\"missingtoastcols\":%s[", data->ht, data->ht, data->ht, data->sp);
 		appendStringInfo(&colvalues, "%s%s%s\"columnvalues\":%s[", data->ht, data->ht, data->ht, data->sp);
 	}
 
@@ -661,6 +682,16 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 		/* XXX Unchanged TOAST Datum does not need to be output */
 		if (!isnull && typisvarlena && VARATT_IS_EXTERNAL_ONDISK(origval))
 		{
+			if (data->include_missing_toast)
+			{
+				appendStringInfo(&missingtoastcols, "%s", toastcomma);
+				escape_json(&missingtoastcols, NameStr(attr->attname));
+			}
+			
+			/* first missing toast has no comma */
+			if (strcmp(toastcomma, "") == 0)
+				snprintf(toastcomma, 3, ",%s", data->sp);
+
 			elog(DEBUG1, "column \"%s\" has an unchanged TOAST", NameStr(attr->attname));
 			continue;
 		}
@@ -787,6 +818,8 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 			appendStringInfo(&coltypeoids, "],%s", data->nl);
 		if (data->include_not_null)
 			appendStringInfo(&colnotnulls, "],%s", data->nl);
+		if (data->include_missing_toast)
+			appendStringInfo(&missingtoastcols, "],%s", data->nl);
 		if (hasreplident)
 			appendStringInfo(&colvalues, "],%s", data->nl);
 		else
@@ -801,6 +834,8 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 		appendStringInfoString(ctx->out, coltypeoids.data);
 	if (data->include_not_null)
 		appendStringInfoString(ctx->out, colnotnulls.data);
+	if (data->include_missing_toast)
+		appendStringInfoString(ctx->out, missingtoastcols.data);
 	appendStringInfoString(ctx->out, colvalues.data);
 
 	pfree(colnames.data);
@@ -809,6 +844,8 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 		pfree(coltypeoids.data);
 	if (data->include_not_null)
 		pfree(colnotnulls.data);
+	if (data->include_missing_toast)
+		pfree(missingtoastcols.data);
 	pfree(colvalues.data);
 }
 
