@@ -1200,7 +1200,11 @@ pg_decode_change_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 
 		/* table was not found */
 		if (skip)
+		{
+			MemoryContextSwitchTo(old);
+			MemoryContextReset(data->context);
 			return;
+		}
 	}
 
 	/* Sanity checks */
