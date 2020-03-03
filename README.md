@@ -5,9 +5,9 @@ Introduction
 
 **wal2json** is an output plugin for logical decoding. It means that the plugin have access to tuples produced by INSERT and UPDATE. Also, UPDATE/DELETE old row versions can be accessed depending on the configured replica identity. Changes can be consumed using the streaming protocol (logical replication slots) or by a special SQL API.
 
-The **wal2json** output plugin produces a JSON object per transaction. All of the new/old tuples are available in the JSON object. Also, there are options to include properties such as transaction timestamp, schema-qualified, data types, and transaction ids.
+**format version 1** produces a JSON object per transaction. All of the new/old tuples are available in the JSON object. Also, there are options to include properties such as transaction timestamp, schema-qualified, data types, and transaction ids.
 
-**wal2json** is released under PostgreSQL license.
+**format version 2** produces a JSON object per tuple. Optional JSON object for beginning and end of transaction. Also, there are a variety of options to include properties.
 
 Requirements
 ============
@@ -54,7 +54,7 @@ You need to set up at least two parameters at postgresql.conf:
 
 ```
 wal_level = logical
-max_replication_slots = 1
+max_replication_slots = 10
 ```
 
 After changing these parameters, a restart is needed.
@@ -70,17 +70,20 @@ Parameters
 * `include-types`: add _type_ to each change. Default is _true_.
 * `include-typmod`: add modifier to types that have it (eg. varchar(20) instead of varchar). Default is _true_.
 * `include-type-oids`: add type oids. Default is _false_.
+* `include-domain-data-type`: replace domain name with the underlying data type. Default is _false_.
 * `include-not-null`: add _not null_ information as _columnoptionals_. Default is _false_.
 * `pretty-print`: add spaces and indentation to JSON structures. Default is _false_.
 * `write-in-chunks`: write after every change instead of every changeset. Default is _false_.
 * `include-lsn`: add _nextlsn_ to each changeset. Default is _false_.
-* `include-unchanged-toast` (deprecated): add TOAST value even if it was not modified. Since TOAST values are usually large, this option could save IO and bandwidth if it is disabled. Default is _true_.
+* `include-unchanged-toast` (deprecated): Don't use it. It is deprecated.
+* `filter-origins`: exclude changes from the specified origins. Default is empty which means that no origin will be filtered. It is a comma separated value.
 * `filter-tables`: exclude rows from the specified tables. Default is empty which means that no table will be filtered. It is a comma separated value. The tables should be schema-qualified. `*.foo` means table foo in all schemas and `bar.*` means all tables in schema bar. Special characters (space, single quote, comma, period, asterisk) must be escaped with backslash. Schema and table are case-sensitive. Table `"public"."Foo bar"` should be specified as `public.Foo\ bar`.
 * `add-tables`: include only rows from the specified tables. Default is all tables from all schemas. It has the same rules from `filter-tables`.
 * `filter-msg-prefixes`: exclude messages if prefix is in the list. Default is empty which means that no message will be filtered. It is a comma separated value.
 * `add-msg-prefixes`: include only messages if prefix is in the list. Default is all prefixes. It is a comma separated value. `wal2json` applies `filter-msg-prefixes` before this parameter.
 * `format-version`: defines which format to use. Default is _1_.
 * `include-missing-toast`: include a list of columns which are not included in return data since they are toasted and were not updated.  Default is _false_
+* `actions`: define which operations will be sent. Default is all actions (insert, update, delete, and truncate). However, if you are using `format-version` 1, truncate is not enabled (backward compatibility).
 
 Examples
 ========
@@ -327,10 +330,61 @@ psql:/tmp/example2.sql:17: WARNING:  table "table2_without_pk" without primary k
 stop
 ```
 
+Let's repeat the same example with `format-version` 2:
+
+```
+$ cat /tmp/example3.sql
+CREATE TABLE table2_with_pk (a SERIAL, b VARCHAR(30), c TIMESTAMP NOT NULL, PRIMARY KEY(a, c));
+CREATE TABLE table2_without_pk (a SERIAL, b NUMERIC(5,2), c TEXT);
+
+SELECT 'init' FROM pg_create_logical_replication_slot('test_slot', 'wal2json');
+
+BEGIN;
+INSERT INTO table2_with_pk (b, c) VALUES('Backup and Restore', now());
+INSERT INTO table2_with_pk (b, c) VALUES('Tuning', now());
+INSERT INTO table2_with_pk (b, c) VALUES('Replication', now());
+DELETE FROM table2_with_pk WHERE a < 3;
+
+INSERT INTO table2_without_pk (b, c) VALUES(2.34, 'Tapir');
+-- it is not added to stream because there isn't a pk or a replica identity
+UPDATE table2_without_pk SET c = 'Anta' WHERE c = 'Tapir';
+COMMIT;
+
+SELECT data FROM pg_logical_slot_get_changes('test_slot', NULL, NULL, 'format-version', '2');
+SELECT 'stop' FROM pg_drop_replication_slot('test_slot');
+```
+
+The script above produces the output below:
+
+```
+$ psql -At -f /tmp/example3.sql postgres
+CREATE TABLE
+CREATE TABLE
+init
+BEGIN
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+DELETE 2
+INSERT 0 1
+UPDATE 1
+COMMIT
+psql:/tmp/example3.sql:17: WARNING:  no tuple identifier for UPDATE in table "public"."table2_without_pk"
+{"action":"B"}
+{"action":"I","schema":"public","table":"table2_with_pk","columns":[{"name":"a","type":"integer","value":1},{"name":"b","type":"character varying(30)","value":"Backup and Restore"},{"name":"c","type":"timestamp without time zone","value":"2019-12-29 04:58:34.806671"}]}
+{"action":"I","schema":"public","table":"table2_with_pk","columns":[{"name":"a","type":"integer","value":2},{"name":"b","type":"character varying(30)","value":"Tuning"},{"name":"c","type":"timestamp without time zone","value":"2019-12-29 04:58:34.806671"}]}
+{"action":"I","schema":"public","table":"table2_with_pk","columns":[{"name":"a","type":"integer","value":3},{"name":"b","type":"character varying(30)","value":"Replication"},{"name":"c","type":"timestamp without time zone","value":"2019-12-29 04:58:34.806671"}]}
+{"action":"D","schema":"public","table":"table2_with_pk","identity":[{"name":"a","type":"integer","value":1},{"name":"c","type":"timestamp without time zone","value":"2019-12-29 04:58:34.806671"}]}
+{"action":"D","schema":"public","table":"table2_with_pk","identity":[{"name":"a","type":"integer","value":2},{"name":"c","type":"timestamp without time zone","value":"2019-12-29 04:58:34.806671"}]}
+{"action":"I","schema":"public","table":"table2_without_pk","columns":[{"name":"a","type":"integer","value":1},{"name":"b","type":"numeric(5,2)","value":2.34},{"name":"c","type":"text","value":"Tapir"}]}
+{"action":"C"}
+stop
+```
+
 License
 =======
 
-> Copyright (c) 2013-2019, Euler Taveira de Oliveira
+> Copyright (c) 2013-2020, Euler Taveira de Oliveira
 > All rights reserved.
 
 > Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
