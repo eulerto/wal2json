@@ -2,6 +2,7 @@
 
 -- predictability
 SET synchronous_commit = on;
+SET extra_float_digits = 0;
 
 DROP TABLE IF EXISTS table_with_pk;
 DROP TABLE IF EXISTS table_without_pk;
@@ -88,5 +89,6 @@ ALTER TABLE table_with_unique REPLICA IDENTITY FULL;
 DELETE FROM table_with_unique WHERE b = 1;
 ALTER TABLE table_with_unique REPLICA IDENTITY DEFAULT;
 
-SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pretty-print', '1', 'include-typmod', '0');
+SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '1', 'pretty-print', '1', 'include-typmod', '0');
+SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '2');
 SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');

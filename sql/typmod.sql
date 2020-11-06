@@ -2,6 +2,7 @@
 
 -- predictability
 SET synchronous_commit = on;
+SET extra_float_digits = 0;
 
 DROP TABLE IF EXISTS table_with_pk;
 
@@ -34,6 +35,6 @@ UPDATE table_with_pk SET f = -f WHERE b = 1;
 -- UPDATE: pk change
 DELETE FROM table_with_pk WHERE b = 1;
 
-SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'pretty-print', '1');
-SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'pretty-print', '1', 'include-typmod', '0');
+SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '1', 'pretty-print', '1');
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'format-version', '1', 'pretty-print', '1', 'include-typmod', '0');
 SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
