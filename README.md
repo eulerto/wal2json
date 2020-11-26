@@ -492,6 +492,39 @@ DROP TABLE
 DROP TABLE
 ```
 
+Explanation of format 1 data
+=============================
+Each entry has the following fields:
+
+| key | value | optional (with option to display) |
+|-----|-------|-----------------------------------|
+| xid | transaction id of the changeset | optional (absent `include-xids`) |
+| nextlsn | the next lsn of the changeset | optional (absent `include-lsn`) |
+| timestamp | the timestamp each changeset was commited | optional (absent `include-timestamp`) |
+| origin | the origin that a tuple came from [ref](https://www.highgo.ca/2020/04/18/the-origin-in-postgresql-logical-decoding/) | optional (absent `include-origin`) |
+| change | array of changes where each change is a json struct containing data about a single change in the transaction | required |
+| change.kind | the kind of change, can be one of insert/update/delete/truncate | required |
+| change.schema | the schema that the table, that the tuple associated with the change is in | optional (present `include-schemas`) |
+| change.table | the table that a change is associated with | required |
+| change.pk | json structure containing information about the primary keys | optional (absent `include-pk`) |
+| change.pk.pknames | array containing the names of the primary key columns | optional (absent `include-pk`) |
+| change.pk.pktypes | array containing the types of the primary key columns | optional (absent `include-pk`) |
+| change.columnnames | array of the names of all columns in the table | required (only present for insert/update) |
+| change.columntypes | array of the types of all columns in the table | required (only present for insert/update) |
+| change.columntypeoids | array of the oids of all columns in the table | optional (absent `include-type-oids` when present only present for insert/update) |
+| change.columnpositions | array of the booleans for whether each column in the table is optional | optional (absent `include-column-positions` when present only present for insert/update) |
+| change.columnoptionals | array of the booleans for whether each column in the table is optional | optional (absent `include-not-null` when present only present for insert/update) |
+| change.columndefaults | array of the defaults for each column in the table | optional (absent `include-default` when present only present for insert/update) |
+| change.columnvalues | array of the values for each column in the table | required (only present for insert/update) |
+| change.oldkeys | json structure containing information about the [replica identity](https://www.postgresql.org/docs/10/logical-replication-publication.html) of the previous column (usually the primary key, if replica-identity is full, it is index and the index changes, or the primary key changes this will show the entire previous row) | required (only present for update/delete) |
+| change.oldkeys.keynames | array containing the names of the replica identity columns | required (only present for update/delete) |
+| change.oldkeys.keytypes | array containing the types of the replica identity columns | required (only present for update/delete) |
+| change.oldkeys.keytypeoids | array containing the oids of the replica identity columns | optional (absent `include-type-oids` only present for update/delete) |
+| change.oldkeys.keyvalues | array containing the values of the replica identity columns | required (only present for update/delete) |
+
+Note: Unchanged TOAST datum columns are not output for any of the rows.
+
+
 License
 =======
 
