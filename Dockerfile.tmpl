@@ -1,0 +1,9 @@
+FROM postgres:TARGET_VERSION
+
+RUN apt-get update
+RUN apt-get install -y autoconf automake g++ libtool make postgresql-server-dev-TARGET_VERSION
+
+WORKDIR /src
+
+ENV USE_PGXS=1
+CMD make
