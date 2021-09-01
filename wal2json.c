@@ -874,6 +874,7 @@ static void
 pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 					 XLogRecPtr commit_lsn)
 {
+	OutputPluginUpdateProgress(ctx);
 	JsonDecodingData *data = ctx->output_plugin_private;
 
 	elog(DEBUG2, "my change counter: " UINT64_FORMAT " ; # of changes: " UINT64_FORMAT " ; # of changes in memory: " UINT64_FORMAT, data->nr_changes, txn->nentries, txn->nentries_mem);
