@@ -42,10 +42,33 @@ Before installing **wal2json**, you should have PostgreSQL 9.4+ installed (inclu
 If you compile PostgreSQL by yourself and install it in `/home/euler/pg13`:
 
 ```
-$ git clone https://github.com/streamsets/wal2json.git
-$ PATH=/path/to/bin/pg_config:$PATH
-$ USE_PGXS=1 make
-$ USE_PGXS=1 make install
+$ tar -zxf wal2json-wal2json_2_4.tar.gz
+$ cd wal2json-wal2json_2_4
+$ export PATH=/home/euler/pg13/bin:$PATH
+$ make
+$ make install
+```
+
+If you are using [PostgreSQL yum repository](https://yum.postgresql.org):
+
+```
+$ sudo yum install postgresql13-devel
+$ tar -zxf wal2json-wal2json_2_4.tar.gz
+$ cd wal2json-wal2json_2_4
+$ export PATH=/usr/pgsql-13/bin:$PATH
+$ make
+$ make install
+```
+
+If you are using [PostgreSQL apt repository](https://wiki.postgresql.org/wiki/Apt):
+
+```
+$ sudo apt-get install postgresql-server-dev-13
+$ tar -zxf wal2json-wal2json_2_4.tar.gz
+$ cd wal2json-wal2json_2_4
+$ export PATH=/usr/lib/postgresql/13/bin:$PATH
+$ make
+$ make install
 ```
 
 Configuration
