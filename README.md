@@ -19,13 +19,13 @@ This extension is supported on [those platforms](http://www.postgresql.org/docs/
 In Red Hat/CentOS:
 
 ```
-$ sudo yum install wal2json13
+$ sudo yum install wal2json14
 ```
 
 In Debian/Ubuntu:
 
 ```
-$ sudo apt-get install postgresql-13-wal2json
+$ sudo apt-get install postgresql-14-wal2json
 ```
 
 You can also keep up with the latest fixes and features cloning the Git repository.
@@ -37,14 +37,14 @@ $ git clone https://github.com/streamsets/wal2json.git
 Unix based Operating Systems
 ----------------------------
 
-Before installing **wal2json**, you should have PostgreSQL 9.4+ installed (including the header files). If PostgreSQL is not in your search path, add it. If you are using [PostgreSQL yum repository](https://yum.postgresql.org), install `postgresql13-devel` and add `/usr/pgsql-13/bin` to your search path (yum uses `13, 12, 11, 10, 96 or 95`). If you are using [PostgreSQL apt repository](https://wiki.postgresql.org/wiki/Apt), install `postgresql-server-dev-13` and add `/usr/lib/postgresql/13/bin` to your search path. (apt uses `13, 12, 11, 10, 9.6 or 9.5`).
+Before installing **wal2json**, you should have PostgreSQL 9.4+ installed (including the header files). If PostgreSQL is not in your search path, add it. If you are using [PostgreSQL yum repository](https://yum.postgresql.org), install `postgresql14-devel` and add `/usr/pgsql-14/bin` to your search path (yum uses `14, 13, 12, 11, 10, 96 or 95`). If you are using [PostgreSQL apt repository](https://wiki.postgresql.org/wiki/Apt), install `postgresql-server-dev-14` and add `/usr/lib/postgresql/14/bin` to your search path. (apt uses `14, 13, 12, 11, 10, 9.6 or 9.5`).
 
-If you compile PostgreSQL by yourself and install it in `/home/euler/pg13`:
+If you compile PostgreSQL by yourself and install it in `/home/euler/pg14`:
 
 ```
 $ tar -zxf wal2json-wal2json_2_4.tar.gz
 $ cd wal2json-wal2json_2_4
-$ export PATH=/home/euler/pg13/bin:$PATH
+$ export PATH=/home/euler/pg14/bin:$PATH
 $ make
 $ make install
 ```
@@ -52,10 +52,10 @@ $ make install
 If you are using [PostgreSQL yum repository](https://yum.postgresql.org):
 
 ```
-$ sudo yum install postgresql13-devel
+$ sudo yum install postgresql14-devel
 $ tar -zxf wal2json-wal2json_2_4.tar.gz
 $ cd wal2json-wal2json_2_4
-$ export PATH=/usr/pgsql-13/bin:$PATH
+$ export PATH=/usr/pgsql-14/bin:$PATH
 $ make
 $ make install
 ```
@@ -63,10 +63,10 @@ $ make install
 If you are using [PostgreSQL apt repository](https://wiki.postgresql.org/wiki/Apt):
 
 ```
-$ sudo apt-get install postgresql-server-dev-13
+$ sudo apt-get install postgresql-server-dev-14
 $ tar -zxf wal2json-wal2json_2_4.tar.gz
 $ cd wal2json-wal2json_2_4
-$ export PATH=/usr/lib/postgresql/13/bin:$PATH
+$ export PATH=/usr/lib/postgresql/14/bin:$PATH
 $ make
 $ make install
 ```
@@ -108,7 +108,7 @@ Parameters
 * `include-default`: add default expression. Default is _false_.
 * `include-pk`: add _primary key_ information as _pk_. Column name and data type is included. Default is _false_.
 * `pretty-print`: add spaces and indentation to JSON structures. Default is _false_.
-* `write-in-chunks`: write after every change instead of every changeset. Default is _false_.
+* `write-in-chunks`: write after every change instead of every changeset. Only used when `format-version` is `1`. Default is _false_.
 * `include-lsn`: add _nextlsn_ to each changeset. Default is _false_.
 * `include-transaction`: emit records denoting the start and end of each transaction. Default is _true_.
 * `include-unchanged-toast` (deprecated): Don't use it. It is deprecated.
@@ -494,7 +494,7 @@ DROP TABLE
 License
 =======
 
-> Copyright (c) 2013-2020, Euler Taveira de Oliveira
+> Copyright (c) 2013-2022, Euler Taveira de Oliveira
 > All rights reserved.
 
 > Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
