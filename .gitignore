@@ -3,3 +3,5 @@
 /results/
 /wal2json.so
 *.o
+
+.vscode

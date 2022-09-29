@@ -129,8 +129,8 @@ static void pg_decode_shutdown(LogicalDecodingContext *ctx);
 static void pg_decode_begin_txn(LogicalDecodingContext *ctx,
 					ReorderBufferTXN *txn);
 static void pg_output_begin(LogicalDecodingContext *ctx,
-							ReorderBufferTXN *txn,
-							bool wrote_change);
+					ReorderBufferTXN *txn,
+					bool wrote_change);
 static void pg_decode_commit_txn(LogicalDecodingContext *ctx,
 					 ReorderBufferTXN *txn, XLogRecPtr commit_lsn);
 static void pg_decode_change(LogicalDecodingContext *ctx,
@@ -186,7 +186,7 @@ static void pg_decode_truncate_v1(LogicalDecodingContext *ctx,
 
 /* version 2 */
 static void pg_decode_begin_txn_v2(LogicalDecodingContext *ctx,
-										ReorderBufferTXN *txn, bool wrote_change);
+					 ReorderBufferTXN *txn, bool wrote_change);
 static void pg_decode_commit_txn_v2(LogicalDecodingContext *ctx,
 					 ReorderBufferTXN *txn, XLogRecPtr commit_lsn);
 static void pg_decode_write_value(LogicalDecodingContext *ctx, Datum value, bool isnull, Oid typid);
