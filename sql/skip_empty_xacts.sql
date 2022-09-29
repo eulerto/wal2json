@@ -6,7 +6,6 @@ SELECT 'init' FROM pg_create_logical_replication_slot('regression_slot', 'wal2js
 CREATE TABLE xact_test(data text);
 INSERT INTO xact_test VALUES ('before-test');
 
--- bug #13844, xids in non-decoded records need to be inspected
 BEGIN;
 -- perform operation in xact that creates and logs xid, but isn't decoded
 SELECT * FROM xact_test FOR UPDATE;
@@ -17,7 +16,6 @@ COMMIT;
 -- and now show those changes
 SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'include-xids', '0', 'skip-empty-xacts', '1');
 
--- bug #14279, do not propagate null snapshot from subtransaction
 BEGIN;
 -- first insert
 INSERT INTO xact_test VALUES ('main-txn');

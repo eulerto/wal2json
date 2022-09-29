@@ -97,7 +97,7 @@ typedef struct
 } JsonDecodingData;
 
 /*
- * Maintain the per-transaction level variables to track whether the
+ * Maintain a per-transaction structure to track whether the
  * transaction have written any changes. This is required so that if user
  * has requested to skip the empty transactions we can skip the empty streams
  * even though the transaction has written some changes.
@@ -130,7 +130,7 @@ static void pg_decode_begin_txn(LogicalDecodingContext *ctx,
 					ReorderBufferTXN *txn);
 static void pg_output_begin(LogicalDecodingContext *ctx,
 							ReorderBufferTXN *txn,
-							bool last_write);
+							bool wrote_change);
 static void pg_decode_commit_txn(LogicalDecodingContext *ctx,
 					 ReorderBufferTXN *txn, XLogRecPtr commit_lsn);
 static void pg_decode_change(LogicalDecodingContext *ctx,
@@ -166,7 +166,7 @@ static bool pg_add_by_table(List *add_tables, char *schemaname, char *tablename)
 
 /* version 1 */
 static void pg_decode_begin_txn_v1(LogicalDecodingContext *ctx,
-					ReorderBufferTXN *txn, bool last_write);
+					ReorderBufferTXN *txn, bool wrote_change);
 static void pg_decode_commit_txn_v1(LogicalDecodingContext *ctx,
 					 ReorderBufferTXN *txn, XLogRecPtr commit_lsn);
 static void pg_decode_change_v1(LogicalDecodingContext *ctx,
@@ -186,7 +186,7 @@ static void pg_decode_truncate_v1(LogicalDecodingContext *ctx,
 
 /* version 2 */
 static void pg_decode_begin_txn_v2(LogicalDecodingContext *ctx,
-					 ReorderBufferTXN *txn, bool last_write);
+										ReorderBufferTXN *txn, bool wrote_change);
 static void pg_decode_commit_txn_v2(LogicalDecodingContext *ctx,
 					 ReorderBufferTXN *txn, XLogRecPtr commit_lsn);
 static void pg_decode_write_value(LogicalDecodingContext *ctx, Datum value, bool isnull, Oid typid);
@@ -629,7 +629,7 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 			if (elem->arg == NULL)
 			{
 				elog(DEBUG1, "skip-empty-xacts argument is null");
-				data->skip_empty_xacts = true;
+				data->skip_empty_xacts = false;
 			}
 			else if (!parse_bool(strVal(elem->arg), &data->skip_empty_xacts))
 				ereport(ERROR,
@@ -817,17 +817,16 @@ pg_decode_begin_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 {
 	JsonDecodingData *data = ctx->output_plugin_private;
 	JsonTxnData *txndata = MemoryContextAllocZero(ctx->context, sizeof(JsonTxnData));
-
     txndata->xact_wrote_changes = false;
     txn->output_plugin_private = txndata;
-
 
 	/*
      * If asked to skip empty transactions, we'll emit BEGIN at the point
      * where the first operation is received for this transaction.
      */
-    if (data->skip_empty_xacts){
-		elog(DEBUG2, "Skipping empty transaction");
+    if (data->skip_empty_xacts)
+	{
+		elog(DEBUG2, "skipping an empty transaction");
 		return;
 	}
 
@@ -835,27 +834,27 @@ pg_decode_begin_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 }
 
 static void
-pg_output_begin(LogicalDecodingContext *ctx, ReorderBufferTXN *txn, bool last_write)
+pg_output_begin(LogicalDecodingContext *ctx, ReorderBufferTXN *txn, bool wrote_change)
 {
 	JsonDecodingData *data = ctx->output_plugin_private;
 
 	if (data->format_version == 2)
-		pg_decode_begin_txn_v2(ctx, txn, last_write);
+		pg_decode_begin_txn_v2(ctx, txn, wrote_change);
 	else if (data->format_version == 1)
-		pg_decode_begin_txn_v1(ctx, txn, last_write);
+		pg_decode_begin_txn_v1(ctx, txn, wrote_change);
 	else
 		elog(ERROR, "format version %d is not supported", data->format_version);
 }
 
 static void
-pg_decode_begin_txn_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn, bool last_write)
+pg_decode_begin_txn_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn, bool wrote_change)
 {
 	JsonDecodingData *data = ctx->output_plugin_private;
 
 	data->nr_changes = 0;
 
 	/* Transaction starts */
-	OutputPluginPrepareWrite(ctx, last_write);
+	OutputPluginPrepareWrite(ctx, wrote_change);
 
 	appendStringInfo(ctx->out, "{%s", data->nl);
 
@@ -882,11 +881,11 @@ pg_decode_begin_txn_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn, bool 
 	appendStringInfo(ctx->out, "%s\"change\":%s[", data->ht, data->sp);
 
 	if (data->write_in_chunks)
-		OutputPluginWrite(ctx, last_write);
+		OutputPluginWrite(ctx, wrote_change);
 }
 
 static void
-pg_decode_begin_txn_v2(LogicalDecodingContext *ctx, ReorderBufferTXN *txn, bool last_write)
+pg_decode_begin_txn_v2(LogicalDecodingContext *ctx, ReorderBufferTXN *txn, bool wrote_change)
 {
 	JsonDecodingData *data = ctx->output_plugin_private;
 
@@ -894,12 +893,12 @@ pg_decode_begin_txn_v2(LogicalDecodingContext *ctx, ReorderBufferTXN *txn, bool 
 	if (!data->include_transaction)
 		return;
 
-	OutputPluginPrepareWrite(ctx, last_write);
+	OutputPluginPrepareWrite(ctx, wrote_change);
 	appendStringInfoString(ctx->out, "{\"action\":\"B\"");
 	if (data->include_xids)
 		appendStringInfo(ctx->out, ",\"xid\":%u", txn->xid);
 	if (data->include_timestamp)
-			appendStringInfo(ctx->out, ",\"timestamp\":\"%s\"", timestamptz_to_str(txn->commit_time));
+		appendStringInfo(ctx->out, ",\"timestamp\":\"%s\"", timestamptz_to_str(txn->commit_time));
 
 #if PG_VERSION_NUM >= 90500
 	if (data->include_origin)
@@ -918,7 +917,7 @@ pg_decode_begin_txn_v2(LogicalDecodingContext *ctx, ReorderBufferTXN *txn, bool 
 	}
 
 	appendStringInfoChar(ctx->out, '}');
-	OutputPluginWrite(ctx, last_write);
+	OutputPluginWrite(ctx, wrote_change);
 }
 
 /* COMMIT callback */
@@ -1642,9 +1641,7 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 
 	/* output BEGIN if we haven't yet */
 	if (data->skip_empty_xacts && !txndata->xact_wrote_changes)
-	{
 		pg_output_begin(ctx, txn, false);
-	}
 	txndata->xact_wrote_changes = true;
 
 	if (data->format_version == 2)
@@ -2641,11 +2638,8 @@ static void pg_decode_truncate(LogicalDecodingContext *ctx,
 
 	/* output BEGIN if we haven't yet */
 	if (data->skip_empty_xacts && !txndata->xact_wrote_changes)
-	{
 		pg_output_begin(ctx, txn, false);
-	}
 	txndata->xact_wrote_changes = true;
-
 
 	if (data->format_version == 2)
 		pg_decode_truncate_v2(ctx, txn, n, relations, change);
