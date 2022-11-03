@@ -69,6 +69,7 @@ typedef struct
 
 	bool		pretty_print;		/* pretty-print JSON? */
 	bool		write_in_chunks;	/* write in chunks? (v1) */
+	bool		numeric_data_types_as_string;	/* use strings for numeric data types */
 
 	JsonAction	actions;			/* output only these actions */
 
@@ -261,6 +262,7 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 	data->include_typmod = true;
 	data->include_domain_data_type = false;
 	data->include_column_positions = false;
+	data->numeric_data_types_as_string = false;
 	data->pretty_print = false;
 	data->write_in_chunks = false;
 	data->include_lsn = false;
@@ -475,6 +477,19 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 				data->include_default = true;
 			}
 			else if (!parse_bool(strVal(elem->arg), &data->include_default))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
+							 strVal(elem->arg), elem->defname)));
+		}
+		else if (strcmp(elem->defname, "numeric-data-types-as-string") == 0)
+		{
+			if (elem->arg == NULL)
+			{
+				elog(DEBUG1, "numeric-data-types-as-string argument is null");
+				data->numeric_data_types_as_string = true;
+			}
+			else if (!parse_bool(strVal(elem->arg), &data->numeric_data_types_as_string))
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
@@ -1257,8 +1272,9 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 			 * Data types are printed with quotes unless they are number, true,
 			 * false, null, an array or an object.
 			 *
-			 * The NaN and Infinity are not valid JSON symbols. Hence,
-			 * regardless of sign they are represented as the string null.
+			 * The NaN and Infinity are not valid JSON numeric values. Hence,
+			 * regardless of sign they are represented as null when
+			 * data->numeric_data_types_as_string is not used.
 			 */
 			switch (typid)
 			{
@@ -1269,7 +1285,18 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 				case FLOAT4OID:
 				case FLOAT8OID:
 				case NUMERICOID:
-					if (pg_strncasecmp(outputstr, "NaN", 3) == 0 ||
+					if (data->numeric_data_types_as_string) {
+						if (strspn(outputstr, "0123456789+-eE.") == strlen(outputstr) ||
+								pg_strncasecmp(outputstr, "NaN", 3) == 0 ||
+								pg_strncasecmp(outputstr, "Infinity", 8) == 0 ||
+								pg_strncasecmp(outputstr, "-Infinity", 9) == 0) {
+							appendStringInfo(&colvalues, "%s", comma);
+							escape_json(&colvalues, outputstr);
+						} else {
+							elog(ERROR, "%s is not a number", outputstr);
+						}
+					}
+					else if (pg_strncasecmp(outputstr, "NaN", 3) == 0 ||
 							pg_strncasecmp(outputstr, "Infinity", 8) == 0 ||
 							pg_strncasecmp(outputstr, "-Infinity", 9) == 0)
 					{
@@ -1846,9 +1873,12 @@ pg_decode_change_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 static void
 pg_decode_write_value(LogicalDecodingContext *ctx, Datum value, bool isnull, Oid typid)
 {
-	Oid		typoutfunc;
-	bool	isvarlena;
-	char	*outstr;
+	JsonDecodingData    *data;
+	Oid		            typoutfunc;
+	bool                isvarlena;
+	char	            *outstr;
+
+	data = ctx->output_plugin_private;
 
 	if (isnull)
 	{
@@ -1883,8 +1913,9 @@ pg_decode_write_value(LogicalDecodingContext *ctx, Datum value, bool isnull, Oid
 	 * Data types are printed with quotes unless they are number, true, false,
 	 * null, an array or an object.
 	 *
-	 * The NaN an Infinity are not valid JSON symbols. Hence, regardless of
-	 * sign they are represented as the string null.
+	 * The NaN and Infinity are not valid JSON numeric values. Hence,
+	 * regardless of sign they are represented as null when
+	 * data->numeric_data_types_as_string is not used.
 	 */
 	switch (typid)
 	{
@@ -1895,7 +1926,17 @@ pg_decode_write_value(LogicalDecodingContext *ctx, Datum value, bool isnull, Oid
 		case FLOAT4OID:
 		case FLOAT8OID:
 		case NUMERICOID:
-			if (pg_strncasecmp(outstr, "NaN", 3) == 0 ||
+			if (data->numeric_data_types_as_string) {
+				if (strspn(outstr, "0123456789+-eE.") == strlen(outstr) ||
+						pg_strncasecmp(outstr, "NaN", 3) == 0 ||
+						pg_strncasecmp(outstr, "Infinity", 8) == 0 ||
+						pg_strncasecmp(outstr, "-Infinity", 9) == 0) {
+					escape_json(ctx->out, outstr);
+				} else {
+					elog(ERROR, "%s is not a number", outstr);
+				}
+			}
+			else if (pg_strncasecmp(outstr, "NaN", 3) == 0 ||
 					pg_strncasecmp(outstr, "Infinity", 8) == 0 ||
 					pg_strncasecmp(outstr, "-Infinity", 9) == 0)
 			{
