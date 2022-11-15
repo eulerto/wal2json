@@ -2,19 +2,8 @@
 -- predictability
 SET synchronous_commit = on;
 SET extra_float_digits = 0;
-CREATE TABLE table_integer (a smallserial, b smallint, c int, d	bigint);
+CREATE TABLE table_integer (a smallserial, b smallint, c int, d bigint);
 CREATE TABLE table_decimal (a real, b double precision, c numeric);
-CREATE TABLE table_others (
-a	char(10),
-b	varchar(30),
-c	text,
-d	bit varying(20),
-e	timestamp,
-f	date,
-g	boolean,
-h	json,
-i	tsvector
-);
 SELECT 'init' FROM pg_create_logical_replication_slot('regression_slot', 'wal2json');
  ?column? 
 ----------
@@ -29,84 +18,140 @@ INSERT INTO table_decimal (a, b) VALUES('-Infinity', '-Infinity');
 INSERT INTO table_decimal (a, b, c) VALUES('NaN', 'NaN', 'NaN');
 INSERT INTO table_decimal (a, b, c) VALUES(123.456, 123456789.012345, 1234567890987654321.1234567890987654321);
 INSERT INTO table_decimal (a, b, c) VALUES(-123.456, -123456789.012345, -1234567890987654321.1234567890987654321);
-INSERT INTO table_others (a, b, c, d, e, f, g, h, i) VALUES('teste', 'testando', 'um texto longo', B'001110010101010', '2013-11-02 17:30:52', '2013-02-04', true, '{ "a": 123 }', 'Old Old Parr'::tsvector);
 COMMIT;
 SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '1', 'pretty-print', '1', 'numeric-data-types-as-string', '1');
-                                                                                           data                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {                                                                                                                                                                                        +
-         "change": [                                                                                                                                                                      +
-                 {                                                                                                                                                                        +
-                         "kind": "insert",                                                                                                                                                +
-                         "schema": "public",                                                                                                                                              +
-                         "table": "table_integer",                                                                                                                                        +
-                         "columnnames": ["a", "b", "c", "d"],                                                                                                                             +
-                         "columntypes": ["smallint", "smallint", "integer", "bigint"],                                                                                                    +
-                         "columnvalues": ["1", "32767", "2147483647", "9223372036854775807"]                                                                                              +
-                 }                                                                                                                                                                        +
-                 ,{                                                                                                                                                                       +
-                         "kind": "insert",                                                                                                                                                +
-                         "schema": "public",                                                                                                                                              +
-                         "table": "table_integer",                                                                                                                                        +
-                         "columnnames": ["a", "b", "c", "d"],                                                                                                                             +
-                         "columntypes": ["smallint", "smallint", "integer", "bigint"],                                                                                                    +
-                         "columnvalues": ["2", "-32768", "-2147483648", "-9223372036854775808"]                                                                                           +
-                 }                                                                                                                                                                        +
-                 ,{                                                                                                                                                                       +
-                         "kind": "insert",                                                                                                                                                +
-                         "schema": "public",                                                                                                                                              +
-                         "table": "table_decimal",                                                                                                                                        +
-                         "columnnames": ["a", "b", "c"],                                                                                                                                  +
-                         "columntypes": ["real", "double precision", "numeric"],                                                                                                          +
-                         "columnvalues": ["Infinity", "Infinity", null]                                                                                                                   +
-                 }                                                                                                                                                                        +
-                 ,{                                                                                                                                                                       +
-                         "kind": "insert",                                                                                                                                                +
-                         "schema": "public",                                                                                                                                              +
-                         "table": "table_decimal",                                                                                                                                        +
-                         "columnnames": ["a", "b", "c"],                                                                                                                                  +
-                         "columntypes": ["real", "double precision", "numeric"],                                                                                                          +
-                         "columnvalues": ["-Infinity", "-Infinity", null]                                                                                                                 +
-                 }                                                                                                                                                                        +
-                 ,{                                                                                                                                                                       +
-                         "kind": "insert",                                                                                                                                                +
-                         "schema": "public",                                                                                                                                              +
-                         "table": "table_decimal",                                                                                                                                        +
-                         "columnnames": ["a", "b", "c"],                                                                                                                                  +
-                         "columntypes": ["real", "double precision", "numeric"],                                                                                                          +
-                         "columnvalues": ["NaN", "NaN", "NaN"]                                                                                                                            +
-                 }                                                                                                                                                                        +
-                 ,{                                                                                                                                                                       +
-                         "kind": "insert",                                                                                                                                                +
-                         "schema": "public",                                                                                                                                              +
-                         "table": "table_decimal",                                                                                                                                        +
-                         "columnnames": ["a", "b", "c"],                                                                                                                                  +
-                         "columntypes": ["real", "double precision", "numeric"],                                                                                                          +
-                         "columnvalues": ["123.456", "123456789.012345", "1234567890987654321.1234567890987654321"]                                                                       +
-                 }                                                                                                                                                                        +
-                 ,{                                                                                                                                                                       +
-                         "kind": "insert",                                                                                                                                                +
-                         "schema": "public",                                                                                                                                              +
-                         "table": "table_decimal",                                                                                                                                        +
-                         "columnnames": ["a", "b", "c"],                                                                                                                                  +
-                         "columntypes": ["real", "double precision", "numeric"],                                                                                                          +
-                         "columnvalues": ["-123.456", "-123456789.012345", "-1234567890987654321.1234567890987654321"]                                                                    +
-                 }                                                                                                                                                                        +
-                 ,{                                                                                                                                                                       +
-                         "kind": "insert",                                                                                                                                                +
-                         "schema": "public",                                                                                                                                              +
-                         "table": "table_others",                                                                                                                                         +
-                         "columnnames": ["a", "b", "c", "d", "e", "f", "g", "h", "i"],                                                                                                    +
-                         "columntypes": ["character(10)", "character varying(30)", "text", "bit varying(20)", "timestamp without time zone", "date", "boolean", "json", "tsvector"],      +
-                         "columnvalues": ["teste     ", "testando", "um texto longo", "001110010101010", "Sat Nov 02 17:30:52 2013", "02-04-2013", true, "{ \"a\": 123 }", "'Old' 'Parr'"]+
-                 }                                                                                                                                                                        +
-         ]                                                                                                                                                                                +
+                                                         data                                                          
+-----------------------------------------------------------------------------------------------------------------------
+ {                                                                                                                    +
+         "change": [                                                                                                  +
+                 {                                                                                                    +
+                         "kind": "insert",                                                                            +
+                         "schema": "public",                                                                          +
+                         "table": "table_integer",                                                                    +
+                         "columnnames": ["a", "b", "c", "d"],                                                         +
+                         "columntypes": ["smallint", "smallint", "integer", "bigint"],                                +
+                         "columnvalues": ["1", "32767", "2147483647", "9223372036854775807"]                          +
+                 }                                                                                                    +
+                 ,{                                                                                                   +
+                         "kind": "insert",                                                                            +
+                         "schema": "public",                                                                          +
+                         "table": "table_integer",                                                                    +
+                         "columnnames": ["a", "b", "c", "d"],                                                         +
+                         "columntypes": ["smallint", "smallint", "integer", "bigint"],                                +
+                         "columnvalues": ["2", "-32768", "-2147483648", "-9223372036854775808"]                       +
+                 }                                                                                                    +
+                 ,{                                                                                                   +
+                         "kind": "insert",                                                                            +
+                         "schema": "public",                                                                          +
+                         "table": "table_decimal",                                                                    +
+                         "columnnames": ["a", "b", "c"],                                                              +
+                         "columntypes": ["real", "double precision", "numeric"],                                      +
+                         "columnvalues": ["Infinity", "Infinity", null]                                               +
+                 }                                                                                                    +
+                 ,{                                                                                                   +
+                         "kind": "insert",                                                                            +
+                         "schema": "public",                                                                          +
+                         "table": "table_decimal",                                                                    +
+                         "columnnames": ["a", "b", "c"],                                                              +
+                         "columntypes": ["real", "double precision", "numeric"],                                      +
+                         "columnvalues": ["-Infinity", "-Infinity", null]                                             +
+                 }                                                                                                    +
+                 ,{                                                                                                   +
+                         "kind": "insert",                                                                            +
+                         "schema": "public",                                                                          +
+                         "table": "table_decimal",                                                                    +
+                         "columnnames": ["a", "b", "c"],                                                              +
+                         "columntypes": ["real", "double precision", "numeric"],                                      +
+                         "columnvalues": ["NaN", "NaN", "NaN"]                                                        +
+                 }                                                                                                    +
+                 ,{                                                                                                   +
+                         "kind": "insert",                                                                            +
+                         "schema": "public",                                                                          +
+                         "table": "table_decimal",                                                                    +
+                         "columnnames": ["a", "b", "c"],                                                              +
+                         "columntypes": ["real", "double precision", "numeric"],                                      +
+                         "columnvalues": ["123.456", "123456789.012345", "1234567890987654321.1234567890987654321"]   +
+                 }                                                                                                    +
+                 ,{                                                                                                   +
+                         "kind": "insert",                                                                            +
+                         "schema": "public",                                                                          +
+                         "table": "table_decimal",                                                                    +
+                         "columnnames": ["a", "b", "c"],                                                              +
+                         "columntypes": ["real", "double precision", "numeric"],                                      +
+                         "columnvalues": ["-123.456", "-123456789.012345", "-1234567890987654321.1234567890987654321"]+
+                 }                                                                                                    +
+         ]                                                                                                            +
  }
 (1 row)
 
-SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '2', 'pretty-print', '1', 'numeric-data-types-as-string', '1');
-                                                                                                                                                                                                                                                                                                   data                                                                                                                                                                                                                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '1', 'pretty-print', '1');
+                                                      data                                                       
+-----------------------------------------------------------------------------------------------------------------
+ {                                                                                                              +
+         "change": [                                                                                            +
+                 {                                                                                              +
+                         "kind": "insert",                                                                      +
+                         "schema": "public",                                                                    +
+                         "table": "table_integer",                                                              +
+                         "columnnames": ["a", "b", "c", "d"],                                                   +
+                         "columntypes": ["smallint", "smallint", "integer", "bigint"],                          +
+                         "columnvalues": [1, 32767, 2147483647, 9223372036854775807]                            +
+                 }                                                                                              +
+                 ,{                                                                                             +
+                         "kind": "insert",                                                                      +
+                         "schema": "public",                                                                    +
+                         "table": "table_integer",                                                              +
+                         "columnnames": ["a", "b", "c", "d"],                                                   +
+                         "columntypes": ["smallint", "smallint", "integer", "bigint"],                          +
+                         "columnvalues": [2, -32768, -2147483648, -9223372036854775808]                         +
+                 }                                                                                              +
+                 ,{                                                                                             +
+                         "kind": "insert",                                                                      +
+                         "schema": "public",                                                                    +
+                         "table": "table_decimal",                                                              +
+                         "columnnames": ["a", "b", "c"],                                                        +
+                         "columntypes": ["real", "double precision", "numeric"],                                +
+                         "columnvalues": [null, null, null]                                                     +
+                 }                                                                                              +
+                 ,{                                                                                             +
+                         "kind": "insert",                                                                      +
+                         "schema": "public",                                                                    +
+                         "table": "table_decimal",                                                              +
+                         "columnnames": ["a", "b", "c"],                                                        +
+                         "columntypes": ["real", "double precision", "numeric"],                                +
+                         "columnvalues": [null, null, null]                                                     +
+                 }                                                                                              +
+                 ,{                                                                                             +
+                         "kind": "insert",                                                                      +
+                         "schema": "public",                                                                    +
+                         "table": "table_decimal",                                                              +
+                         "columnnames": ["a", "b", "c"],                                                        +
+                         "columntypes": ["real", "double precision", "numeric"],                                +
+                         "columnvalues": [null, null, null]                                                     +
+                 }                                                                                              +
+                 ,{                                                                                             +
+                         "kind": "insert",                                                                      +
+                         "schema": "public",                                                                    +
+                         "table": "table_decimal",                                                              +
+                         "columnnames": ["a", "b", "c"],                                                        +
+                         "columntypes": ["real", "double precision", "numeric"],                                +
+                         "columnvalues": [123.456, 123456789.012345, 1234567890987654321.1234567890987654321]   +
+                 }                                                                                              +
+                 ,{                                                                                             +
+                         "kind": "insert",                                                                      +
+                         "schema": "public",                                                                    +
+                         "table": "table_decimal",                                                              +
+                         "columnnames": ["a", "b", "c"],                                                        +
+                         "columntypes": ["real", "double precision", "numeric"],                                +
+                         "columnvalues": [-123.456, -123456789.012345, -1234567890987654321.1234567890987654321]+
+                 }                                                                                              +
+         ]                                                                                                      +
+ }
+(1 row)
+
+SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '2', 'numeric-data-types-as-string', '1');
+                                                                                                                                      data                                                                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"action":"B"}
  {"action":"I","schema":"public","table":"table_integer","columns":[{"name":"a","type":"smallint","value":"1"},{"name":"b","type":"smallint","value":"32767"},{"name":"c","type":"integer","value":"2147483647"},{"name":"d","type":"bigint","value":"9223372036854775807"}]}
  {"action":"I","schema":"public","table":"table_integer","columns":[{"name":"a","type":"smallint","value":"2"},{"name":"b","type":"smallint","value":"-32768"},{"name":"c","type":"integer","value":"-2147483648"},{"name":"d","type":"bigint","value":"-9223372036854775808"}]}
@@ -115,9 +160,22 @@ SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'fo
  {"action":"I","schema":"public","table":"table_decimal","columns":[{"name":"a","type":"real","value":"NaN"},{"name":"b","type":"double precision","value":"NaN"},{"name":"c","type":"numeric","value":"NaN"}]}
  {"action":"I","schema":"public","table":"table_decimal","columns":[{"name":"a","type":"real","value":"123.456"},{"name":"b","type":"double precision","value":"123456789.012345"},{"name":"c","type":"numeric","value":"1234567890987654321.1234567890987654321"}]}
  {"action":"I","schema":"public","table":"table_decimal","columns":[{"name":"a","type":"real","value":"-123.456"},{"name":"b","type":"double precision","value":"-123456789.012345"},{"name":"c","type":"numeric","value":"-1234567890987654321.1234567890987654321"}]}
- {"action":"I","schema":"public","table":"table_others","columns":[{"name":"a","type":"character(10)","value":"teste     "},{"name":"b","type":"character varying(30)","value":"testando"},{"name":"c","type":"text","value":"um texto longo"},{"name":"d","type":"bit varying(20)","value":"001110010101010"},{"name":"e","type":"timestamp without time zone","value":"Sat Nov 02 17:30:52 2013"},{"name":"f","type":"date","value":"02-04-2013"},{"name":"g","type":"boolean","value":true},{"name":"h","type":"json","value":"{ \"a\": 123 }"},{"name":"i","type":"tsvector","value":"'Old' 'Parr'"}]}
  {"action":"C"}
-(10 rows)
+(9 rows)
+
+SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '2');
+                                                                                                                                  data                                                                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"action":"B"}
+ {"action":"I","schema":"public","table":"table_integer","columns":[{"name":"a","type":"smallint","value":1},{"name":"b","type":"smallint","value":32767},{"name":"c","type":"integer","value":2147483647},{"name":"d","type":"bigint","value":9223372036854775807}]}
+ {"action":"I","schema":"public","table":"table_integer","columns":[{"name":"a","type":"smallint","value":2},{"name":"b","type":"smallint","value":-32768},{"name":"c","type":"integer","value":-2147483648},{"name":"d","type":"bigint","value":-9223372036854775808}]}
+ {"action":"I","schema":"public","table":"table_decimal","columns":[{"name":"a","type":"real","value":null},{"name":"b","type":"double precision","value":null},{"name":"c","type":"numeric","value":null}]}
+ {"action":"I","schema":"public","table":"table_decimal","columns":[{"name":"a","type":"real","value":null},{"name":"b","type":"double precision","value":null},{"name":"c","type":"numeric","value":null}]}
+ {"action":"I","schema":"public","table":"table_decimal","columns":[{"name":"a","type":"real","value":null},{"name":"b","type":"double precision","value":null},{"name":"c","type":"numeric","value":null}]}
+ {"action":"I","schema":"public","table":"table_decimal","columns":[{"name":"a","type":"real","value":123.456},{"name":"b","type":"double precision","value":123456789.012345},{"name":"c","type":"numeric","value":1234567890987654321.1234567890987654321}]}
+ {"action":"I","schema":"public","table":"table_decimal","columns":[{"name":"a","type":"real","value":-123.456},{"name":"b","type":"double precision","value":-123456789.012345},{"name":"c","type":"numeric","value":-1234567890987654321.1234567890987654321}]}
+ {"action":"C"}
+(9 rows)
 
 SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
  ?column? 
@@ -125,3 +183,5 @@ SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
  stop
 (1 row)
 
+DROP TABLE table_integer;
+DROP TABLE table_decimal;

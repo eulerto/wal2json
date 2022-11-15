@@ -1272,9 +1272,12 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 			 * Data types are printed with quotes unless they are number, true,
 			 * false, null, an array or an object.
 			 *
-			 * The NaN and Infinity are not valid JSON numeric values. Hence,
-			 * regardless of sign they are represented as null when
-			 * data->numeric_data_types_as_string is not used.
+			 * The NaN and Infinity are not valid JSON symbols. Hence,
+			 * regardless of sign they are represented as the string null.
+			 *
+			 * Exception to this is when data->numeric_data_types_as_string is
+			 * true. In this case, numbers (including NaN and Infinity values)
+			 * are printed with quotes.
 			 */
 			switch (typid)
 			{
@@ -1873,10 +1876,10 @@ pg_decode_change_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 static void
 pg_decode_write_value(LogicalDecodingContext *ctx, Datum value, bool isnull, Oid typid)
 {
-	JsonDecodingData    *data;
-	Oid		            typoutfunc;
-	bool                isvarlena;
-	char	            *outstr;
+	JsonDecodingData	*data;
+	Oid					typoutfunc;
+	bool				isvarlena;
+	char				*outstr;
 
 	data = ctx->output_plugin_private;
 
@@ -1913,9 +1916,12 @@ pg_decode_write_value(LogicalDecodingContext *ctx, Datum value, bool isnull, Oid
 	 * Data types are printed with quotes unless they are number, true, false,
 	 * null, an array or an object.
 	 *
-	 * The NaN and Infinity are not valid JSON numeric values. Hence,
-	 * regardless of sign they are represented as null when
-	 * data->numeric_data_types_as_string is not used.
+	 * The NaN an Infinity are not valid JSON symbols. Hence, regardless of
+	 * sign they are represented as the string null.
+	 *
+	 * Exception to this is when data->numeric_data_types_as_string is
+	 * true. In this case, numbers (including NaN and Infinity values)
+	 * are printed with quotes.
 	 */
 	switch (typid)
 	{
