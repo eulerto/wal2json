@@ -1,0 +1,51 @@
+# CI configuration file for wal2json
+# https://cirrus-ci.com/
+
+env:
+  DEBIAN_FRONTEND: noninteractive
+  LANG: C
+
+task:
+  name: Linux (Ubuntu)
+  matrix:
+    - container:
+        image: ubuntu:22.04
+  env:
+    - TESTPORT: 55432
+    matrix:
+      - PGVERSION: 16
+      - PGVERSION: 15
+      - PGVERSION: 14
+      - PGVERSION: 13
+      - PGVERSION: 12
+  setup_script:
+    - echo "en_US.UTF-8 UTF-8" | tee -a /etc/locale.gen
+    - locale-gen
+    - LANG=en_US.UTF-8
+    - apt-get update
+    - apt-get -y install curl gnupg lsb-release ca-certificates
+    - install -d /usr/share/postgresql-common/pgdg
+    - curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
+    - echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list
+    - apt-get update
+    - apt-get -y install gcc make postgresql-$PGVERSION postgresql-server-dev-$PGVERSION
+    - pg_createcluster --start $PGVERSION ci -p $TESTPORT -- -A trust
+    - echo "wal_level = logical" | tee -a /etc/postgresql/$PGVERSION/ci/postgresql.conf
+    - pg_ctlcluster $PGVERSION ci restart
+    - useradd wal2json
+    - chown -R wal2json .
+  build_script:
+    - PATH=/usr/lib/postgresql/$PGVERSION/bin:$PATH
+    - su wal2json -c "make"
+    - make install
+  test_script:
+    - PATH=/usr/lib/postgresql/$PGVERSION/bin:$PATH
+    - PGPORT=$TESTPORT
+    - su wal2json -c "make installcheck"
+  on_failure:
+    testrun_artifacts:
+      paths:
+        - "**/*.log"
+        - "**/*.diffs"
+        - "**/*.out"
+      type: text/plain
