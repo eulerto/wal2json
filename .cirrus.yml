@@ -28,8 +28,8 @@ task:
     - echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list
     - apt-get update
     - apt-get -y install postgresql-common
-    - echo "wal_level = logical" | tee -a /usr/share/postgresql-common/createcluster.conf
-    - echo "initdb_options = '--locale en_US.UTF-8'" | tee -a /usr/share/postgresql-common/createcluster.conf
+    - echo "wal_level = logical" | tee -a /etc/postgresql-common/createcluster.conf
+    - echo "initdb_options = '--locale en_US.UTF-8'" | tee -a /etc/postgresql-common/createcluster.conf
     - apt-get -y install gcc make postgresql-$PGVERSION postgresql-server-dev-$PGVERSION
     - useradd wal2json
     - chown -R wal2json .
