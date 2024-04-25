@@ -13,10 +13,10 @@ task:
   env:
     matrix:
       - PGVERSION: 16
-#      - PGVERSION: 15
-#      - PGVERSION: 14
-#      - PGVERSION: 13
-#      - PGVERSION: 12
+      - PGVERSION: 15
+      - PGVERSION: 14
+      - PGVERSION: 13
+      - PGVERSION: 12
   setup_script:
     - apt-get update
     - apt-get -y install curl gnupg lsb-release ca-certificates locales
