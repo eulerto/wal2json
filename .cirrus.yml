@@ -11,7 +11,7 @@ task:
     - container:
         image: ubuntu:22.04
   env:
-    - TESTPORT: 55432
+    TESTPORT: 55432
     matrix:
       - PGVERSION: 16
       - PGVERSION: 15
