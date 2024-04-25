@@ -31,6 +31,7 @@ task:
     - echo "wal_level = logical" | tee -a /etc/postgresql-common/createcluster.conf
     - echo "initdb_options = '--locale en_US.UTF-8'" | tee -a /etc/postgresql-common/createcluster.conf
     - apt-get -y install gcc make postgresql-$PGVERSION postgresql-server-dev-$PGVERSION
+    - pg_lsclusters
     - useradd wal2json
     - chown -R wal2json .
   build_script:
