@@ -33,15 +33,14 @@ task:
     - apt-get -y install gcc make postgresql-$PGVERSION postgresql-server-dev-$PGVERSION
     - pg_lsclusters
     - pg_ctlcluster 16 main start
-    - useradd wal2json
-    - chown -R wal2json .
+    - chown -R postgres .
   build_script:
     - PATH=/usr/lib/postgresql/$PGVERSION/bin:$PATH
-    - su wal2json -c "make"
+    - su postgres -c "make"
     - make install
   test_script:
     - PATH=/usr/lib/postgresql/$PGVERSION/bin:$PATH
-    - su wal2json -c "make installcheck"
+    - su postgres -c "make installcheck"
   on_failure:
     testrun_artifacts:
       paths:
