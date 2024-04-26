@@ -32,7 +32,7 @@ task:
     - echo "initdb_options = '--locale en_US.UTF-8'" | tee -a /etc/postgresql-common/createcluster.conf
     - apt-get -y install gcc make postgresql-$PGVERSION postgresql-server-dev-$PGVERSION
     - pg_lsclusters
-    - pg_ctlcluster 16 main start
+    - pg_ctlcluster $PGVERSION main start
     - chown -R postgres .
   build_script:
     - PATH=/usr/lib/postgresql/$PGVERSION/bin:$PATH
