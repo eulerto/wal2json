@@ -62,10 +62,13 @@ task:
 #      - PGVERSION: 12
   setup_script:
     - pkg install -y gcc gmake postgresql$PGVERSION-server sudo
-    - /usr/local/etc/rc.d/postgresql initdb
+    - ls -la ~postgres
+    - sysrc postgresql_enable=yes
+    - service postgresql initdb
     - echo "wal_level = logical" | tee -a /var/db/postgres/data$PGVERSION/postgresql.conf
     - service postgresql start
     - which pg_ctl
+    - ps aux | grep postgres
     - ls -laR /var/db
     - chown -R postgres .
   build_script:
