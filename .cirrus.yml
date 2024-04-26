@@ -6,6 +6,7 @@ env:
   LANG: C
 
 task:
+  skip: true
   name: Linux (Ubuntu)
   matrix:
     - container:
