@@ -48,3 +48,35 @@ task:
         - "**/*.diffs"
         - "**/*.out"
       type: text/plain
+
+task:
+  name: FreeBSD
+  freebsd_instance:
+    image_family: freebsd-14-0
+  env:
+    matrix:
+      - PGVERSION: 16
+#      - PGVERSION: 15
+#      - PGVERSION: 14
+#      - PGVERSION: 13
+#      - PGVERSION: 12
+  setup_script:
+    - pkg install -y gcc gmake postgresql$PGVERSION-server sudo
+    - /usr/local/etc/rc.d/postgresql initdb
+    - echo "wal_level = logical" | tee -a /var/db/postgres/data$PGVERSION/postgresql.conf
+    - service postgresql start
+    - which pg_ctl
+    - ls -laR /var/db
+    - chown -R postgres .
+  build_script:
+    - su postgres -c "make"
+    - make install
+  test_script:
+    - su postgres -c "make installcheck"
+  on_failure:
+    testrun_artifacts:
+      paths:
+        - "**/*.log"
+        - "**/*.diffs"
+        - "**/*.out"
+      type: text/plain
