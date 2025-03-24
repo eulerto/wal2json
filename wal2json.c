@@ -40,7 +40,14 @@
 #define	WAL2JSON_FORMAT_VERSION			2
 #define	WAL2JSON_FORMAT_MIN_VERSION		1
 
+#if PG_VERSION_NUM >= 180000
+PG_MODULE_MAGIC_EXT(
+		.name = "wal2json",
+		.version = WAL2JSON_VERSION
+);
+#else
 PG_MODULE_MAGIC;
+#endif
 
 extern void		_PG_init(void);
 extern void	PGDLLEXPORT	_PG_output_plugin_init(OutputPluginCallbacks *cb);
