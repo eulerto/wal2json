@@ -12,7 +12,7 @@ Introduction
 Build and Install
 =================
 
-This extension is supported on [those platforms](http://www.postgresql.org/docs/current/static/supported-platforms.html) that PostgreSQL is. The installation steps depend on your operating system. [PostgreSQL yum repository](https://yum.postgresql.org) and [PostgreSQL apt repository](https://wiki.postgresql.org/wiki/Apt) provide wal2json packages.
+This module is supported on [those platforms](http://www.postgresql.org/docs/current/static/supported-platforms.html) that PostgreSQL is. The installation steps depend on your operating system. [PostgreSQL yum repository](https://yum.postgresql.org) and [PostgreSQL apt repository](https://wiki.postgresql.org/wiki/Apt) provide wal2json packages.
 
 In Red Hat/CentOS:
 
