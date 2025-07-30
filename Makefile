@@ -6,7 +6,7 @@ REGRESS = cmdline insert1 update1 update2 update3 update4 delete1 delete2 \
 		  include_domain_data_type truncate type_oid actions position default \
 		  pk rename_column numeric_data_types_as_string
 
-PG_CONFIG = pg_config
+PG_CONFIG ?= pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
 
