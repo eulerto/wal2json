@@ -144,6 +144,7 @@ Parameters
 * `add-tables`: include only rows from the specified tables. Default is all tables from all schemas. It has the same rules from `filter-tables`.
 * `filter-msg-prefixes`: exclude messages if prefix is in the list. Default is empty which means that no message will be filtered. It is a comma separated value.
 * `add-msg-prefixes`: include only messages if prefix is in the list. Default is all prefixes. It is a comma separated value. `wal2json` applies `filter-msg-prefixes` before this parameter.
+* `partition-root`: use the root partitioned table as the table name (similar to `publish_via_partition_root` in `CREATE PUBLICATION`). If _false_, use the partition name. `filter-tables` and `add-tables` match the same name that is used as the table name, hence, if this parameter is _true_, they should specify the root partitioned table. Default is _false_.
 * `format-version`: defines which format to use. Default is _1_.
 * `actions`: define which operations will be sent. Default is all actions (insert, update, delete, and truncate). However, if you are using `format-version` 1, truncate is not enabled (backward compatibility).
 

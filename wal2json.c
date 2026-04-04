@@ -16,6 +16,9 @@
 #include "access/heapam.h"
 #include "access/sysattr.h"
 #include "catalog/indexing.h"
+#if PG_VERSION_NUM >= 100000
+#include "catalog/partition.h"
+#endif
 #include "catalog/pg_attrdef.h"
 #include "catalog/pg_type.h"
 
@@ -76,6 +79,7 @@ typedef struct
 	bool		include_not_null;	/* include not-null constraints */
 	bool		include_default;	/* include default expressions */
 	bool		include_pk;			/* include primary key */
+	bool		partition_root;		/* use root partitioned table as table name */
 
 	bool		pretty_print;		/* pretty-print JSON? */
 	bool		write_in_chunks;	/* write in chunks? (v1) */
@@ -188,7 +192,7 @@ static void pg_decode_commit_txn_v2(LogicalDecodingContext *ctx,
 					 ReorderBufferTXN *txn, XLogRecPtr commit_lsn);
 static void pg_decode_write_value(LogicalDecodingContext *ctx, Datum value, bool isnull, Oid typid);
 static void pg_decode_write_tuple(LogicalDecodingContext *ctx, Relation relation, HeapTuple tuple, PGOutputJsonKind kind);
-static void pg_decode_write_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn, Relation relation, ReorderBufferChange *change);
+static void pg_decode_write_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn, Relation relation, ReorderBufferChange *change, char *schemaname, char *tablename);
 static void pg_decode_change_v2(LogicalDecodingContext *ctx,
 				 ReorderBufferTXN *txn, Relation rel,
 				 ReorderBufferChange *change);
@@ -286,6 +290,7 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 	data->pretty_print = false;
 	data->write_in_chunks = false;
 	data->include_lsn = false;
+	data->partition_root = false;
 	data->include_not_null = false;
 	data->include_default = false;
 	data->filter_origins = NIL;
@@ -556,6 +561,19 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 				data->include_lsn = true;
 			}
 			else if (!parse_bool(strVal(elem->arg), &data->include_lsn))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
+							 strVal(elem->arg), elem->defname)));
+		}
+		else if (strcmp(elem->defname, "partition-root") == 0)
+		{
+			if (elem->arg == NULL)
+			{
+				elog(DEBUG1, "partition-root argument is null");
+				data->partition_root = true;
+			}
+			else if (!parse_bool(strVal(elem->arg), &data->partition_root))
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
@@ -1689,6 +1707,58 @@ pg_add_by_table(List *add_tables, char *schemaname, char *tablename)
 	return false;
 }
 
+/*
+ * If partition_root is true and the relation is a partition, resolve the root
+ * partitioned table (schema and table). Otherwise, use the relation.
+ */
+#if PG_VERSION_NUM >= 100000
+static void
+pg_decode_partition_name(Relation relation, bool partition_root,
+						 char **schemaname, char **tablename)
+{
+	if (partition_root && relation->rd_rel->relispartition)
+	{
+		Oid		relid = RelationGetRelid(relation);
+		Oid		root_oid;
+
+		/*
+		 * Partitions can be nested, hence climb up the partition tree until
+		 * the root partitioned table is reached.
+		 */
+		for (;;)
+		{
+			HeapTuple	tp;
+			bool		ispartition;
+
+#if PG_VERSION_NUM >= 140000
+			root_oid = get_partition_parent(relid, false);
+#else
+			root_oid = get_partition_parent(relid);
+#endif
+
+			tp = SearchSysCache1(RELOID, ObjectIdGetDatum(root_oid));
+			if (!HeapTupleIsValid(tp))
+				elog(ERROR, "cache lookup failed for relation %u", root_oid);
+			ispartition = ((Form_pg_class) GETSTRUCT(tp))->relispartition;
+			ReleaseSysCache(tp);
+
+			if (!ispartition)
+				break;
+
+			relid = root_oid;
+		}
+
+		*schemaname = get_namespace_name(get_rel_namespace(root_oid));
+		*tablename = get_rel_name(root_oid);
+	}
+	else
+	{
+		*schemaname = get_namespace_name(RelationGetNamespace(relation));
+		*tablename = RelationGetRelationName(relation);
+	}
+}
+#endif
+
 /* Callback for individual changed tuples */
 static void
 pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
@@ -1749,9 +1819,18 @@ pg_decode_change_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	/* Avoid leaking memory by using and resetting our own context */
 	old = MemoryContextSwitchTo(data->context);
 
-	/* schema and table names are used for select tables */
+	/*
+	 * Schema and table names are used for select tables and also for the
+	 * output. If partition-root is enabled, they refer to the root
+	 * partitioned table.
+	 */
+#if PG_VERSION_NUM >= 100000
+	pg_decode_partition_name(relation, data->partition_root,
+							&schemaname, &tablename);
+#else
 	schemaname = get_namespace_name(class_form->relnamespace);
 	tablename = NameStr(class_form->relname);
+#endif
 
 	if (data->write_in_chunks)
 		OutputPluginPrepareWrite(ctx, true);
@@ -1870,11 +1949,11 @@ pg_decode_change_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	if (data->include_schemas)
 	{
 		appendStringInfo(ctx->out, "%s%s%s\"schema\":%s", data->ht, data->ht, data->ht, data->sp);
-		escape_json(ctx->out, get_namespace_name(class_form->relnamespace));
+		escape_json(ctx->out, schemaname);
 		appendStringInfo(ctx->out, ",%s", data->nl);
 	}
 	appendStringInfo(ctx->out, "%s%s%s\"table\":%s", data->ht, data->ht, data->ht, data->sp);
-	escape_json(ctx->out, NameStr(class_form->relname));
+	escape_json(ctx->out, tablename);
 	appendStringInfo(ctx->out, ",%s", data->nl);
 
 	if (data->include_pk)
@@ -2340,7 +2419,7 @@ pg_decode_write_tuple(LogicalDecodingContext *ctx, Relation relation, HeapTuple 
 }
 
 static void
-pg_decode_write_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn, Relation relation, ReorderBufferChange *change)
+pg_decode_write_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn, Relation relation, ReorderBufferChange *change, char *schemaname, char *tablename)
 {
 	JsonDecodingData *data = ctx->output_plugin_private;
 
@@ -2433,11 +2512,11 @@ pg_decode_write_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn, Relat
 	if (data->include_schemas)
 	{
 		appendStringInfo(ctx->out, ",\"schema\":");
-		escape_json(ctx->out, get_namespace_name(RelationGetNamespace(relation)));
+		escape_json(ctx->out, schemaname);
 	}
 
 	appendStringInfo(ctx->out, ",\"table\":");
-	escape_json(ctx->out, RelationGetRelationName(relation));
+	escape_json(ctx->out, tablename);
 
 	/* print new tuple (INSERT, UPDATE) */
 	if (change->data.tp.newtuple != NULL)
@@ -2563,9 +2642,18 @@ pg_decode_change_v2(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	/* avoid leaking memory by using and resetting our own context */
 	old = MemoryContextSwitchTo(data->context);
 
-	/* schema and table names are used for chosen tables */
+	/*
+	 * Schema and table names are used for chosen tables and also for the
+	 * output. If partition-root is enabled, they refer to the root
+	 * partitioned table.
+	 */
+#if PG_VERSION_NUM >= 100000
+	pg_decode_partition_name(relation, data->partition_root,
+							&schemaname, &tablename);
+#else
 	schemaname = get_namespace_name(RelationGetNamespace(relation));
 	tablename = RelationGetRelationName(relation);
+#endif
 
 	/* Exclude tables, if available */
 	if (pg_filter_by_table(data->filter_tables, schemaname, tablename))
@@ -2583,7 +2671,7 @@ pg_decode_change_v2(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 		return;
 	}
 
-	pg_decode_write_change(ctx, txn, relation, change);
+	pg_decode_write_change(ctx, txn, relation, change, schemaname, tablename);
 
 	MemoryContextSwitchTo(old);
 	MemoryContextReset(data->context);
@@ -2973,9 +3061,18 @@ static void pg_decode_truncate_v2(LogicalDecodingContext *ctx,
 		char	*schemaname;
 		char	*tablename;
 
-		/* schema and table names are used for chosen tables */
+		/*
+		 * Schema and table names are used for chosen tables and also for the
+		 * output. If partition-root is enabled, they refer to the root
+		 * partitioned table.
+		 */
+#if PG_VERSION_NUM >= 100000
+		pg_decode_partition_name(relations[i], data->partition_root,
+								&schemaname, &tablename);
+#else
 		schemaname = get_namespace_name(RelationGetNamespace(relations[i]));
 		tablename = RelationGetRelationName(relations[i]);
+#endif
 
 		/* Exclude tables, if available */
 		if (pg_filter_by_table(data->filter_tables, schemaname, tablename))
