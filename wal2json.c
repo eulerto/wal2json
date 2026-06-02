@@ -88,6 +88,7 @@ typedef struct
 	bool		pretty_print;		/* pretty-print JSON? */
 	bool		write_in_chunks;	/* write in chunks? (v1) */
 	bool		numeric_data_types_as_string;	/* use strings for numeric data types */
+	bool		include_empty_transaction;	/* transactions without changes */
 
 	JsonAction	actions;			/* output only these actions */
 
@@ -107,6 +108,8 @@ typedef struct
 
 	uint64		nr_changes;			/* # of passes in pg_decode_change() */
 									/* FIXME replace with txn->nentries */
+
+	bool		xact_wrote_changes;	/* has current transaction written any change? */
 
 	/* pretty print */
 	char		ht[2];				/* horizontal tab, if pretty print */
@@ -134,6 +137,8 @@ static void pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *
 static void pg_decode_shutdown(LogicalDecodingContext *ctx);
 static void pg_decode_begin_txn(LogicalDecodingContext *ctx,
 					ReorderBufferTXN *txn);
+static void pg_decode_write_begin_txn(LogicalDecodingContext *ctx,
+					ReorderBufferTXN *txn, bool last_write);
 static void pg_decode_commit_txn(LogicalDecodingContext *ctx,
 					 ReorderBufferTXN *txn, XLogRecPtr commit_lsn);
 static void pg_decode_change(LogicalDecodingContext *ctx,
@@ -169,7 +174,7 @@ static bool pg_add_by_table(List *add_tables, char *schemaname, char *tablename)
 
 /* version 1 */
 static void pg_decode_begin_txn_v1(LogicalDecodingContext *ctx,
-					ReorderBufferTXN *txn);
+					ReorderBufferTXN *txn, bool last_write);
 static void pg_decode_commit_txn_v1(LogicalDecodingContext *ctx,
 					 ReorderBufferTXN *txn, XLogRecPtr commit_lsn);
 static void pg_decode_change_v1(LogicalDecodingContext *ctx,
@@ -187,7 +192,7 @@ static void pg_decode_truncate_v1(LogicalDecodingContext *ctx,
 
 /* version 2 */
 static void pg_decode_begin_txn_v2(LogicalDecodingContext *ctx,
-					ReorderBufferTXN *txn);
+					ReorderBufferTXN *txn, bool last_write);
 static void pg_decode_commit_txn_v2(LogicalDecodingContext *ctx,
 					 ReorderBufferTXN *txn, XLogRecPtr commit_lsn);
 static void pg_decode_write_value(LogicalDecodingContext *ctx, Datum value, bool isnull, Oid typid);
@@ -267,6 +272,7 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 	data->numeric_data_types_as_string = false;
 	data->pretty_print = false;
 	data->write_in_chunks = false;
+	data->include_empty_transaction = true;
 	data->include_lsn = false;
 	data->partition_root = false;
 	data->include_not_null = false;
@@ -306,6 +312,8 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 	data->add_tables = lappend(data->add_tables, t);
 
 	data->nr_changes = 0;
+
+	data->xact_wrote_changes = false;
 
 	ctx->output_plugin_private = data;
 
@@ -526,6 +534,17 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 				data->write_in_chunks = true;
 			}
 			else if (!parse_bool(strVal(elem->arg), &data->write_in_chunks))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
+							 strVal(elem->arg), elem->defname)));
+		}
+		else if (strcmp(elem->defname, "include-empty-transaction") == 0)
+		{
+			/* if option value is NULL then assume that value is true */
+			if (elem->arg == NULL)
+				data->include_empty_transaction = true;
+			else if (!parse_bool(strVal(elem->arg), &data->include_empty_transaction))
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						 errmsg("could not parse value \"%s\" for parameter \"%s\"",
@@ -825,23 +844,40 @@ pg_decode_begin_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 {
 	JsonDecodingData *data = ctx->output_plugin_private;
 
+	data->xact_wrote_changes = false;
+
+	/*
+	 * If empty transactions are not included, defer the BEGIN output until
+	 * the first change for this transaction is emitted.
+	 */
+	if (!data->include_empty_transaction)
+		return;
+
+	pg_decode_write_begin_txn(ctx, txn, true);
+}
+
+static void
+pg_decode_write_begin_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn, bool last_write)
+{
+	JsonDecodingData *data = ctx->output_plugin_private;
+
 	if (data->format_version == 2)
-		pg_decode_begin_txn_v2(ctx, txn);
+		pg_decode_begin_txn_v2(ctx, txn, last_write);
 	else if (data->format_version == 1)
-		pg_decode_begin_txn_v1(ctx, txn);
+		pg_decode_begin_txn_v1(ctx, txn, last_write);
 	else
 		elog(ERROR, "format version %d is not supported", data->format_version);
 }
 
 static void
-pg_decode_begin_txn_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
+pg_decode_begin_txn_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn, bool last_write)
 {
 	JsonDecodingData *data = ctx->output_plugin_private;
 
 	data->nr_changes = 0;
 
 	/* Transaction starts */
-	OutputPluginPrepareWrite(ctx, true);
+	OutputPluginPrepareWrite(ctx, last_write);
 
 	appendStringInfo(ctx->out, "{%s", data->nl);
 
@@ -872,11 +908,11 @@ pg_decode_begin_txn_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 	appendStringInfo(ctx->out, "%s\"change\":%s[", data->ht, data->sp);
 
 	if (data->write_in_chunks)
-		OutputPluginWrite(ctx, true);
+		OutputPluginWrite(ctx, last_write);
 }
 
 static void
-pg_decode_begin_txn_v2(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
+pg_decode_begin_txn_v2(LogicalDecodingContext *ctx, ReorderBufferTXN *txn, bool last_write)
 {
 	JsonDecodingData *data = ctx->output_plugin_private;
 
@@ -884,7 +920,7 @@ pg_decode_begin_txn_v2(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 	if (!data->include_transaction)
 		return;
 
-	OutputPluginPrepareWrite(ctx, true);
+	OutputPluginPrepareWrite(ctx, last_write);
 	appendStringInfoString(ctx->out, "{\"action\":\"B\"");
 	if (data->include_xids)
 		appendStringInfo(ctx->out, ",\"xid\":%u", txn->xid);
@@ -913,7 +949,7 @@ pg_decode_begin_txn_v2(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 	}
 
 	appendStringInfoChar(ctx->out, '}');
-	OutputPluginWrite(ctx, true);
+	OutputPluginWrite(ctx, last_write);
 }
 
 /* COMMIT callback */
@@ -922,6 +958,16 @@ pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 					 XLogRecPtr commit_lsn)
 {
 	JsonDecodingData *data = ctx->output_plugin_private;
+	bool		skipped_xact;
+
+	/*
+	 * A transaction without changes is skipped if empty transactions are not
+	 * included. In format version 2, it is also skipped if BEGIN and COMMIT
+	 * objects are not included because nothing is emitted for it.
+	 */
+	skipped_xact = !data->xact_wrote_changes &&
+		(!data->include_empty_transaction ||
+		 (data->format_version == 2 && !data->include_transaction));
 
 	/*
 	 * Some older minor versions from back branches (10 to 14) calls
@@ -934,9 +980,9 @@ pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	 * logical decoding.
 	 */
 #if PG_VERSION_NUM >= 160000
-	OutputPluginUpdateProgress(ctx, false);		/* XXX change 2nd param when skipped empty transaction is supported */
+	OutputPluginUpdateProgress(ctx, skipped_xact);
 #elif PG_VERSION_NUM >= 150000 && PG_VERSION_NUM < 160000
-	update_replication_progress(ctx, false);	/* XXX change 2nd param when skipped empty transaction is supported */
+	update_replication_progress(ctx, skipped_xact);
 #elif PG_VERSION_NUM >= 140004 && PG_VERSION_NUM < 150000
 	update_replication_progress(ctx);
 #elif PG_VERSION_NUM >= 130008 && PG_VERSION_NUM < 140000
@@ -958,6 +1004,13 @@ pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 #elif PG_VERSION_NUM < 100022
 	OutputPluginUpdateProgress(ctx);
 #endif
+
+	/* don't output COMMIT for a skipped transaction */
+	if (skipped_xact)
+	{
+		elog(DEBUG1, "skipped replication of an empty transaction with XID: %u", txn->xid);
+		return;
+	}
 
 	elog(DEBUG2, "my change counter: " UINT64_FORMAT " ; # of changes: " UINT64_FORMAT " ; # of changes in memory: " UINT64_FORMAT, data->nr_changes, txn->nentries, txn->nentries_mem);
 	elog(DEBUG2, "# of subxacts: %d", txn->nsubtxns);
@@ -1779,9 +1832,6 @@ pg_decode_change_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	pg_decode_partition_name(relation, data->partition_root,
 							&schemaname, &tablename);
 
-	if (data->write_in_chunks)
-		OutputPluginPrepareWrite(ctx, true);
-
 	/* Make sure rd_replidindex is set */
 	RelationGetIndexList(relation);
 
@@ -1861,6 +1911,14 @@ pg_decode_change_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 		default:
 			Assert(false);
 	}
+
+	/* output BEGIN if we haven't yet */
+	if (!data->include_empty_transaction && !data->xact_wrote_changes)
+		pg_decode_write_begin_txn(ctx, txn, false);
+	data->xact_wrote_changes = true;
+
+	if (data->write_in_chunks)
+		OutputPluginPrepareWrite(ctx, true);
 
 	/* Change counter */
 	data->nr_changes++;
@@ -2386,6 +2444,15 @@ pg_decode_write_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn, Relat
 			Assert(false);
 	}
 
+	/*
+	 * Output BEGIN if we haven't yet. It is done after the checks above,
+	 * otherwise, a change that is not emitted would produce an empty
+	 * transaction.
+	 */
+	if (!data->include_empty_transaction && !data->xact_wrote_changes)
+		pg_decode_write_begin_txn(ctx, txn, false);
+	data->xact_wrote_changes = true;
+
 	OutputPluginPrepareWrite(ctx, true);
 
 	appendStringInfoChar(ctx->out, '{');
@@ -2642,6 +2709,17 @@ pg_decode_message(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 			elog(DEBUG2, "message prefix \"%s\" was skipped", prefix);
 			return;
 		}
+	}
+
+	/*
+	 * output BEGIN if we haven't yet. Don't do it for non-transactional
+	 * messages because they are not part of a transaction.
+	 */
+	if (transactional)
+	{
+		if (!data->include_empty_transaction && !data->xact_wrote_changes)
+			pg_decode_write_begin_txn(ctx, txn, false);
+		data->xact_wrote_changes = true;
 	}
 
 	if (data->format_version == 2)
@@ -2989,6 +3067,11 @@ static void pg_decode_truncate_v2(LogicalDecodingContext *ctx,
 			MemoryContextReset(data->context);
 			continue;
 		}
+
+		/* output BEGIN if we haven't yet */
+		if (!data->include_empty_transaction && !data->xact_wrote_changes)
+			pg_decode_write_begin_txn(ctx, txn, false);
+		data->xact_wrote_changes = true;
 
 		OutputPluginPrepareWrite(ctx, true);
 		appendStringInfoChar(ctx->out, '{');
