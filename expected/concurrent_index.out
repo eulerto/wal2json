@@ -1,0 +1,21 @@
+Parsed test spec with 4 sessions
+
+starting permutation: s1_begin s1_update s2_cic s3_insert s1_commit s4_get
+?column?
+--------
+init    
+(1 row)
+
+step s1_begin: BEGIN;
+step s1_update: UPDATE cic_t SET v = 'x2' WHERE id = 1;
+step s2_cic: CREATE INDEX CONCURRENTLY cic_i ON cic_t (v); <waiting ...>
+step s3_insert: INSERT INTO cic_t VALUES (2, 'y');
+step s1_commit: COMMIT;
+step s2_cic: <... completed>
+step s4_get: SELECT data FROM pg_logical_slot_get_changes('isolation_slot', NULL, NULL, 'format-version', '2') WHERE data LIKE '%cic_t%';
+data                                                                                                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+{"action":"I","schema":"public","table":"cic_t","columns":[{"name":"id","type":"integer","value":2},{"name":"v","type":"text","value":"y"}]}                                                       
+{"action":"U","schema":"public","table":"cic_t","columns":[{"name":"id","type":"integer","value":1},{"name":"v","type":"text","value":"x2"}],"identity":[{"name":"id","type":"integer","value":1}]}
+(2 rows)
+
