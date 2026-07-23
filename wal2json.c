@@ -1468,6 +1468,63 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 	pfree(colvalues.data);
 }
 
+/*
+ * Historic-snapshot-safe substitute for RelationGetIndexAttrBitmap().
+ *
+ * RelationGetIndexAttrBitmap() opens every index returned by
+ * RelationGetIndexList() -- including invalid/in-progress ones created by
+ * CREATE INDEX CONCURRENTLY.  During logical decoding, rd_indexlist may have
+ * been cached while decoding a transaction that used a newer historic
+ * snapshot than the one installed for the change currently being decoded, so
+ * such an index's pg_class tuple can be invisible to the current snapshot and
+ * relation_open() fails with "could not open relation with OID ...".  That
+ * error permanently blocks the slot because the same WAL is replayed on every
+ * retry.
+ *
+ * Instead, open only the one index we actually care about (primary key or
+ * replica identity), without taking a lock, the same way pgoutput's
+ * RelationGetIdentityKeyBitmap() does.  If that index cannot be opened under
+ * the current historic snapshot, return NULL so the caller degrades
+ * gracefully instead of erroring out.
+ *
+ * The caller must have called RelationGetIndexList() on this relation so that
+ * rd_pkindex/rd_replidindex are set.
+ */
+static Bitmapset *
+get_index_column_bitmap(Relation relation, Oid indexoid)
+{
+	Bitmapset  *bs = NULL;
+	Relation	indexrel;
+	int			nkeyatts;
+	int			i;
+
+	if (!OidIsValid(indexoid))
+		return NULL;
+
+	indexrel = RelationIdGetRelation(indexoid);
+	if (indexrel == NULL)
+		return NULL;
+
+#if PG_VERSION_NUM >= 110000
+	nkeyatts = IndexRelationGetNumberOfKeyAttributes(indexrel);
+#else
+	nkeyatts = indexrel->rd_index->indnatts;
+#endif
+
+	for (i = 0; i < nkeyatts; i++)
+	{
+		int			attnum = indexrel->rd_index->indkey.values[i];
+
+		/* primary key/replica identity indexes cannot contain expressions */
+		if (attnum > 0)
+			bs = bms_add_member(bs, attnum - FirstLowInvalidHeapAttributeNumber);
+	}
+
+	RelationClose(indexrel);
+
+	return bs;
+}
+
 /* Print columns information */
 static void
 columns_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tuple, bool addcomma, Relation relation)
@@ -1879,7 +1936,7 @@ pg_decode_change_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 
 	if (data->include_pk)
 #if PG_VERSION_NUM >= 100000
-		pkbs = RelationGetIndexAttrBitmap(relation, INDEX_ATTR_BITMAP_PRIMARY_KEY);
+		pkbs = get_index_column_bitmap(relation, relation->rd_pkindex);
 #else
 		pkbs = RelationGetIndexAttrBitmap(relation, INDEX_ATTR_BITMAP_KEY);
 #endif
@@ -1947,7 +2004,7 @@ pg_decode_change_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 			{
 				elog(DEBUG1, "old tuple is null");
 
-				ribs = RelationGetIndexAttrBitmap(relation, INDEX_ATTR_BITMAP_IDENTITY_KEY);
+				ribs = get_index_column_bitmap(relation, relation->rd_replidindex);
 #if	PG_VERSION_NUM >= 170000
 				identity_to_stringinfo(ctx, tupdesc, change->data.tp.newtuple, ribs);
 #else
@@ -1979,7 +2036,7 @@ pg_decode_change_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 #endif
 			}
 
-			ribs = RelationGetIndexAttrBitmap(relation, INDEX_ATTR_BITMAP_IDENTITY_KEY);
+			ribs = get_index_column_bitmap(relation, relation->rd_replidindex);
 #if	PG_VERSION_NUM >= 170000
 			identity_to_stringinfo(ctx, tupdesc, change->data.tp.oldtuple, ribs);
 #else
@@ -2130,12 +2187,12 @@ pg_decode_write_tuple(LogicalDecodingContext *ctx, Relation relation, HeapTuple 
 	/* figure out replica identity columns */
 	if (kind == PGOUTPUTJSON_IDENTITY)
 	{
-		bs = RelationGetIndexAttrBitmap(relation, INDEX_ATTR_BITMAP_IDENTITY_KEY);
+		bs = get_index_column_bitmap(relation, relation->rd_replidindex);
 	}
 	else if (kind == PGOUTPUTJSON_PK)
 	{
 #if PG_VERSION_NUM >= 100000
-		bs = RelationGetIndexAttrBitmap(relation, INDEX_ATTR_BITMAP_PRIMARY_KEY);
+		bs = get_index_column_bitmap(relation, relation->rd_pkindex);
 #else
 		bs = RelationGetIndexAttrBitmap(relation, INDEX_ATTR_BITMAP_KEY);
 #endif
