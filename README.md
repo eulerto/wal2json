@@ -94,6 +94,30 @@ max_wal_senders = 10
 
 After changing these parameters, a restart is needed.
 
+Since PostgreSQL 18.6, 17.11, 16.15, 15.19, and 14.24, an output plugin can
+only be loaded if its library is listed in the `output_plugin_libraries`
+parameter (this restriction was added as a fix for
+[CVE-2026-6471](https://www.postgresql.org/support/security/CVE-2026-6471/)).
+The default value contains only the output plugins that are shipped with
+PostgreSQL (`pgoutput` and `test_decoding`), hence, **wal2json** has to be
+added to it:
+
+```
+output_plugin_libraries = 'pgoutput, test_decoding, wal2json'
+```
+
+The library name must be exactly `wal2json`. Otherwise, creating or reading
+from a slot fails with:
+
+```
+ERROR:  library "wal2json" may not be used as an output plugin
+```
+
+This parameter is only read when the output plugin is loaded, so a reload
+(`pg_ctl reload` or `SELECT pg_reload_conf()`) is sufficient. Older versions
+(including PostgreSQL 13 and prior minor versions of the branches listed above)
+do not have this parameter and do not require this setting.
+
 Parameters
 ----------
 
