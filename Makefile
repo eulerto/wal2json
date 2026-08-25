@@ -6,6 +6,12 @@ REGRESS = cmdline insert1 update1 update2 update3 update4 delete1 delete2 \
 		  include_domain_data_type truncate type_oid actions position default \
 		  pk rename_column numeric_data_types_as_string partition
 
+# specialvalue test uses Unicode escapes (\uXXXX) whose expected output
+# contains non-ASCII characters, hence, the regression database must be
+# created as UTF8. Otherwise, it fails if the cluster was initialized with
+# another encoding (such as SQL_ASCII).
+REGRESS_OPTS = --encoding=UTF8
+
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
