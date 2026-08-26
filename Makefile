@@ -12,9 +12,16 @@ REGRESS = cmdline insert1 update1 update2 update3 update4 delete1 delete2 \
 # another encoding (such as SQL_ASCII).
 REGRESS_OPTS = --encoding=UTF8
 
+ISOLATION = concurrent_index
+
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
+
+# PGXS isolation-test support is available in 12+
+ifneq (,$(findstring $(MAJORVERSION),9.4 9.5 9.6 10 11))
+undefine ISOLATION
+endif
 
 # message API is available in 9.6+
 ifneq (,$(findstring $(MAJORVERSION),9.4 9.5))
