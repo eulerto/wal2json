@@ -1,0 +1,53 @@
+\set VERBOSITY terse
+-- predictability
+SET synchronous_commit = on;
+DROP TABLE IF EXISTS xpto;
+CREATE TABLE xpto (
+id			int primary key,
+quote		text DEFAULT 'say "hi"',
+backslash	text DEFAULT 'a\b',
+control		text DEFAULT E'a\tb\nc'
+);
+SELECT 'init' FROM pg_create_logical_replication_slot('regression_slot', 'wal2json');
+ ?column? 
+----------
+ init
+(1 row)
+
+INSERT INTO xpto (id) VALUES (1);
+-- a default expression is escaped like any other string
+SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '1', 'include-default', '1');
+                                                                                                                                               data                                                                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"change":[{"kind":"insert","schema":"public","table":"xpto","columnnames":["id","quote","backslash","control"],"columntypes":["integer","text","text","text"],"columndefaults":[null,"'say \"hi\"'::text","'a\\b'::text","'a\tb\nc'::text"],"columnvalues":[1,"say \"hi\"","a\\b","a\tb\nc"]}]}
+(1 row)
+
+SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '2', 'include-default', '1');
+                                                                                                                                                                               data                                                                                                                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"action":"B"}
+ {"action":"I","schema":"public","table":"xpto","columns":[{"name":"id","type":"integer","value":1,"default":null},{"name":"quote","type":"text","value":"say \"hi\"","default":"'say \"hi\"'::text"},{"name":"backslash","type":"text","value":"a\\b","default":"'a\\b'::text"},{"name":"control","type":"text","value":"a\tb\nc","default":"'a\tb\nc'::text"}]}
+ {"action":"C"}
+(3 rows)
+
+-- the emitted lines parse as JSON
+SELECT data::json IS NOT NULL FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '1', 'include-default', '1');
+ ?column? 
+----------
+ t
+(1 row)
+
+SELECT data::json IS NOT NULL FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '2', 'include-default', '1');
+ ?column? 
+----------
+ t
+ t
+ t
+(3 rows)
+
+SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
+ ?column? 
+----------
+ stop
+(1 row)
+
