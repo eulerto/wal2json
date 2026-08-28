@@ -148,6 +148,11 @@ Parameters
 * `format-version`: defines which format to use. Default is _1_.
 * `actions`: define which operations will be sent. Default is all actions (insert, update, delete, and truncate). However, if you are using `format-version` 1, truncate is not enabled (backward compatibility).
 
+Value formatting
+----------------
+
+Values do not follow the reading session. **wal2json** pins `bytea_output`, `DateStyle`, `IntervalStyle`, `TimeZone`, `extra_float_digits` and `lc_monetary` while it emits output, so dates and times are ISO in UTC, intervals use the `postgres` style, floats keep every digit needed to read them back exactly, and a `bytea` is hex with no `\x` prefix.
+
 Examples
 ========
 

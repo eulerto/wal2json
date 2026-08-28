@@ -256,6 +256,77 @@ _PG_output_plugin_init(OutputPluginCallbacks *cb)
 #endif
 }
 
+/*
+ * Settings a type output function consults. The session reading a slot is not
+ * the one that wrote the data, and the JSON does not record which encoding it
+ * got, so pin them while emitting output.
+ */
+static const struct
+{
+	const char	*name;
+	const char	*value;
+}	output_settings[] =
+{
+	{"bytea_output", "hex"},
+	{"DateStyle", "ISO, YMD"},
+	{"IntervalStyle", "postgres"},
+	{"TimeZone", "UTC"},
+	/* exact round-trip: shortest text on 12+, fixed digit count before that */
+	{"extra_float_digits", "3"},
+	{"lc_monetary", "C"}
+};
+
+/*
+ * Returns a nest level for unpin_output_settings(), or -1 if nothing deviated.
+ * Read per callback: a configuration reload can change them mid-stream.
+ */
+static int
+pin_output_settings(void)
+{
+	int		nestlevel = -1;
+	int		i;
+
+	for (i = 0; i < lengthof(output_settings); i++)
+	{
+		const char	*current;
+
+		current = GetConfigOption(output_settings[i].name, false, false);
+
+		if (current != NULL && pg_strcasecmp(current, output_settings[i].value) == 0)
+			continue;
+
+		if (nestlevel < 0)
+			nestlevel = NewGUCNestLevel();
+
+		SetConfigOption(output_settings[i].name, output_settings[i].value,
+						PGC_USERSET, PGC_S_SESSION);
+	}
+
+	return nestlevel;
+}
+
+static void
+unpin_output_settings(int nestlevel)
+{
+	if (nestlevel >= 0)
+		AtEOXact_GUC(false, nestlevel);
+}
+
+/* Hex digits, no "\x" prefix: the one encoding a consumer can decode blind. */
+static void
+append_bytea_hex(StringInfo out, Datum value)
+{
+	bytea	*bytes = (bytea *) DatumGetPointer(value);
+	int		len = VARSIZE_ANY_EXHDR(bytes);
+
+	appendStringInfoChar(out, '"');
+	enlargeStringInfo(out, len * 2 + 1);
+	hex_encode(VARDATA_ANY(bytes), len, out->data + out->len);
+	out->len += len * 2;
+	out->data[out->len] = '\0';
+	appendStringInfoChar(out, '"');
+}
+
 /* Initialize this plugin */
 static void
 pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is_init)
@@ -848,6 +919,7 @@ static void
 pg_decode_begin_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 {
 	JsonDecodingData *data = ctx->output_plugin_private;
+	int			nestlevel = pin_output_settings();
 
 	if (data->format_version == 2)
 		pg_decode_begin_txn_v2(ctx, txn);
@@ -855,6 +927,8 @@ pg_decode_begin_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 		pg_decode_begin_txn_v1(ctx, txn);
 	else
 		elog(ERROR, "format version %d is not supported", data->format_version);
+
+	unpin_output_settings(nestlevel);
 }
 
 static void
@@ -954,6 +1028,7 @@ pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 					 XLogRecPtr commit_lsn)
 {
 	JsonDecodingData *data = ctx->output_plugin_private;
+	int			nestlevel;
 
 	/*
 	 * Some older minor versions from back branches (10 to 14) calls
@@ -994,12 +1069,16 @@ pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	elog(DEBUG2, "my change counter: " UINT64_FORMAT " ; # of changes: " UINT64_FORMAT " ; # of changes in memory: " UINT64_FORMAT, data->nr_changes, txn->nentries, txn->nentries_mem);
 	elog(DEBUG2, "# of subxacts: %d", txn->nsubtxns);
 
+	nestlevel = pin_output_settings();
+
 	if (data->format_version == 2)
 		pg_decode_commit_txn_v2(ctx, txn, commit_lsn);
 	else if (data->format_version == 1)
 		pg_decode_commit_txn_v1(ctx, txn, commit_lsn);
 	else
 		elog(ERROR, "format version %d is not supported", data->format_version);
+
+	unpin_output_settings(nestlevel);
 }
 
 static void
@@ -1351,8 +1430,9 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 			else
 				val = origval;
 
-			/* Finally got the value */
-			outputstr = OidOutputFunctionCall(typoutput, val);
+			/* bytea is encoded below, without its output function */
+			if (typid != BYTEAOID)
+				outputstr = OidOutputFunctionCall(typoutput, val);
 
 			/*
 			 * Data types are printed with quotes unless they are number, true,
@@ -1405,8 +1485,7 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 					break;
 				case BYTEAOID:
 					appendStringInfo(&colvalues, "%s", comma);
-					/* string is "\x54617069727573", start after "\x" */
-					escape_json(&colvalues, (outputstr + 2));
+					append_bytea_hex(&colvalues, val);
 					break;
 				default:
 					appendStringInfo(&colvalues, "%s", comma);
@@ -1765,6 +1844,7 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 				 Relation relation, ReorderBufferChange *change)
 {
 	JsonDecodingData *data = ctx->output_plugin_private;
+	int			nestlevel;
 
 #if PG_VERSION_NUM >= 150000 && PG_VERSION_NUM < 160000
 	update_replication_progress(ctx, false);
@@ -1780,12 +1860,16 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	update_replication_progress(ctx);
 #endif
 
+	nestlevel = pin_output_settings();
+
 	if (data->format_version == 2)
 		pg_decode_change_v2(ctx, txn, relation, change);
 	else if (data->format_version == 1)
 		pg_decode_change_v1(ctx, txn, relation, change);
 	else
 		elog(ERROR, "format version %d is not supported", data->format_version);
+
+	unpin_output_settings(nestlevel);
 }
 
 static void
@@ -2118,6 +2202,14 @@ pg_decode_write_value(LogicalDecodingContext *ctx, Datum value, bool isnull, Oid
 		Datum	detoastedval;
 
 		detoastedval = PointerGetDatum(PG_DETOAST_DATUM(value));
+
+		/* see append_bytea_hex() */
+		if (typid == BYTEAOID)
+		{
+			append_bytea_hex(ctx->out, detoastedval);
+			return;
+		}
+
 		outstr = OidOutputFunctionCall(typoutfunc, detoastedval);
 	}
 	else
@@ -2172,10 +2264,6 @@ pg_decode_write_value(LogicalDecodingContext *ctx, Datum value, bool isnull, Oid
 				appendStringInfoString(ctx->out, "true");
 			else
 				appendStringInfoString(ctx->out, "false");
-			break;
-		case BYTEAOID:
-			/* string is "\x54617069727573", start after \x */
-			escape_json(ctx->out, (outstr + 2));
 			break;
 		default:
 			escape_json(ctx->out, outstr);
@@ -2685,6 +2773,7 @@ pg_decode_message(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 		content_size, const char *content)
 {
 	JsonDecodingData *data = ctx->output_plugin_private;
+	int			nestlevel;
 
 #if PG_VERSION_NUM >= 150000 && PG_VERSION_NUM < 160000
 	update_replication_progress(ctx, false);
@@ -2738,12 +2827,16 @@ pg_decode_message(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 		}
 	}
 
+	nestlevel = pin_output_settings();
+
 	if (data->format_version == 2)
 		pg_decode_message_v2(ctx, txn, lsn, transactional, prefix, content_size, content);
 	else if (data->format_version == 1)
 		pg_decode_message_v1(ctx, txn, lsn, transactional, prefix, content_size, content);
 	else
 		elog(ERROR, "format version %d is not supported", data->format_version);
+
+	unpin_output_settings(nestlevel);
 }
 
 static void
@@ -2911,6 +3004,7 @@ static void pg_decode_truncate(LogicalDecodingContext *ctx,
 					ReorderBufferChange *change)
 {
 	JsonDecodingData *data = ctx->output_plugin_private;
+	int			nestlevel;
 
 	/*
 	 * For back branches (10 to 15), update_replication_progress() should be called here.
@@ -2928,12 +3022,16 @@ static void pg_decode_truncate(LogicalDecodingContext *ctx,
 	update_replication_progress(ctx);
 #endif
 
+	nestlevel = pin_output_settings();
+
 	if (data->format_version == 2)
 		pg_decode_truncate_v2(ctx, txn, n, relations, change);
 	else if (data->format_version == 1)
 		pg_decode_truncate_v1(ctx, txn, n, relations, change);
 	else
 		elog(ERROR, "format version %d is not supported", data->format_version);
+
+	unpin_output_settings(nestlevel);
 }
 
 static void pg_decode_truncate_v1(LogicalDecodingContext *ctx,
