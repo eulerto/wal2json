@@ -2302,7 +2302,7 @@ pg_decode_write_tuple(LogicalDecodingContext *ctx, Relation relation, HeapTuple 
 		if (data->include_type_oids)
 		{
 			appendStringInfoString(ctx->out, ",\"typeoid\":");
-			appendStringInfo(ctx->out, "%d", attr->atttypid);
+			appendStringInfo(ctx->out, "%u", attr->atttypid);
 		}
 
 		if (kind != PGOUTPUTJSON_PK)
