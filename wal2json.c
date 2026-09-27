@@ -54,8 +54,10 @@ PG_MODULE_MAGIC_EXT(
 PG_MODULE_MAGIC;
 #endif
 
-extern void		_PG_init(void);
+/* 16+ declares it in output_plugin.h */
+#if PG_VERSION_NUM < 160000
 extern void	PGDLLEXPORT	_PG_output_plugin_init(OutputPluginCallbacks *cb);
+#endif
 
 typedef struct
 {
@@ -211,11 +213,6 @@ static void update_replication_progress(LogicalDecodingContext *ctx);
 #endif
 
 static void append_lsn(StringInfo out, XLogRecPtr lsn);
-
-void
-_PG_init(void)
-{
-}
 
 /* Specify output plugin callbacks */
 void
