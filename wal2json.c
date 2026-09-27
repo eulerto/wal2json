@@ -12,20 +12,20 @@
  */
 #include "postgres.h"
 
+#if PG_VERSION_NUM < 100000
+#error "wal2json requires PostgreSQL 10 or later"
+#endif
+
 #include "access/genam.h"
 #include "access/heapam.h"
 #include "access/sysattr.h"
 #include "catalog/indexing.h"
-#if PG_VERSION_NUM >= 100000
 #include "catalog/partition.h"
-#endif
 #include "catalog/pg_attrdef.h"
 #include "catalog/pg_type.h"
 
 #include "replication/logical.h"
-#if PG_VERSION_NUM >= 90500
 #include "replication/origin.h"
-#endif
 
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
@@ -137,15 +137,13 @@ static void pg_decode_change(LogicalDecodingContext *ctx,
 				 ReorderBufferChange *change);
 #if PG_VERSION_NUM >= 190000
 static bool pg_filter_by_origin(LogicalDecodingContext *ctx, ReplOriginId origin_id);
-#elif PG_VERSION_NUM >= 90500
+#else
 static bool pg_filter_by_origin(LogicalDecodingContext *ctx, RepOriginId origin_id);
 #endif
-#if PG_VERSION_NUM >= 90600
 static void pg_decode_message(LogicalDecodingContext *ctx,
 					ReorderBufferTXN *txn, XLogRecPtr lsn,
 					bool transactional, const char *prefix,
 					Size content_size, const char *content);
-#endif
 #if PG_VERSION_NUM >= 110000
 static void pg_decode_truncate(LogicalDecodingContext *ctx,
 					ReorderBufferTXN *txn, int n, Relation relations[],
@@ -173,12 +171,10 @@ static void pg_decode_commit_txn_v1(LogicalDecodingContext *ctx,
 static void pg_decode_change_v1(LogicalDecodingContext *ctx,
 				 ReorderBufferTXN *txn, Relation rel,
 				 ReorderBufferChange *change);
-#if PG_VERSION_NUM >= 90600
 static void pg_decode_message_v1(LogicalDecodingContext *ctx,
 					ReorderBufferTXN *txn, XLogRecPtr lsn,
 					bool transactional, const char *prefix,
 					Size content_size, const char *content);
-#endif
 #if PG_VERSION_NUM >= 110000
 static void pg_decode_truncate_v1(LogicalDecodingContext *ctx,
 					ReorderBufferTXN *txn, int n, Relation relations[],
@@ -196,34 +192,19 @@ static void pg_decode_write_change(LogicalDecodingContext *ctx, ReorderBufferTXN
 static void pg_decode_change_v2(LogicalDecodingContext *ctx,
 				 ReorderBufferTXN *txn, Relation rel,
 				 ReorderBufferChange *change);
-#if PG_VERSION_NUM >= 90600
 static void pg_decode_message_v2(LogicalDecodingContext *ctx,
 					ReorderBufferTXN *txn, XLogRecPtr lsn,
 					bool transactional, const char *prefix,
 					Size content_size, const char *content);
-#endif
 #if PG_VERSION_NUM >= 110000
 static void pg_decode_truncate_v2(LogicalDecodingContext *ctx,
 					ReorderBufferTXN *txn, int n, Relation relations[],
 					ReorderBufferChange *change);
 #endif
 
-/*
- * Backward compatibility.
- *
- * This macro is only available in 9.6+.
- */
-#if PG_VERSION_NUM < 90600
-#ifdef USE_FLOAT8_BYVAL
-#define UInt64GetDatum(X) ((Datum) (X))
-#else
-#define UInt64GetDatum(X) Int64GetDatum((int64) (X))
-#endif
-#endif
-
 #if PG_VERSION_NUM >= 150000 && PG_VERSION_NUM < 160000
 static void update_replication_progress(LogicalDecodingContext *ctx, bool skipped_xact);
-#elif PG_VERSION_NUM >= 100000 && PG_VERSION_NUM < 150000
+#elif PG_VERSION_NUM < 150000
 static void update_replication_progress(LogicalDecodingContext *ctx);
 #endif
 
@@ -245,12 +226,8 @@ _PG_output_plugin_init(OutputPluginCallbacks *cb)
 	cb->change_cb = pg_decode_change;
 	cb->commit_cb = pg_decode_commit_txn;
 	cb->shutdown_cb = pg_decode_shutdown;
-#if PG_VERSION_NUM >= 90500
 	cb->filter_by_origin_cb = pg_filter_by_origin;
-#endif
-#if PG_VERSION_NUM >= 90600
 	cb->message_cb = pg_decode_message;
-#endif
 #if PG_VERSION_NUM >= 110000
 	cb->truncate_cb = pg_decode_truncate;
 #endif
@@ -273,13 +250,7 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 	 */
 	data->context = AllocSetContextCreate(ctx->context,
 										"wal2json output context",
-#if PG_VERSION_NUM >= 90600
 										ALLOCSET_DEFAULT_SIZES
-#else
-										ALLOCSET_DEFAULT_MINSIZE,
-										ALLOCSET_DEFAULT_INITSIZE,
-										ALLOCSET_DEFAULT_MAXSIZE
-#endif
                                         );
 	data->include_transaction = true;
 	data->include_xids = false;
@@ -813,7 +784,6 @@ pg_decode_shutdown(LogicalDecodingContext *ctx)
 	MemoryContextDelete(data->context);
 }
 
-#if PG_VERSION_NUM >= 90500
 static bool
 #if PG_VERSION_NUM >= 190000
 pg_filter_by_origin(LogicalDecodingContext *ctx, ReplOriginId origin_id)
@@ -847,7 +817,6 @@ pg_filter_by_origin(LogicalDecodingContext *ctx, RepOriginId origin_id)
 	 */
 	return false;
 }
-#endif
 
 /* BEGIN callback */
 static void
@@ -898,10 +867,8 @@ pg_decode_begin_txn_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 		appendStringInfo(ctx->out, "%s\"timestamp\":%s\"%s\",%s", data->ht, data->sp, timestamptz_to_str(txn->commit_time), data->nl);
 #endif
 
-#if PG_VERSION_NUM >= 90500
 	if (data->include_origin)
 		appendStringInfo(ctx->out, "%s\"origin\":%s%u,%s", data->ht, data->sp, txn->origin_id, data->nl);
-#endif
 
 	appendStringInfo(ctx->out, "%s\"change\":%s[", data->ht, data->sp);
 
@@ -934,10 +901,8 @@ pg_decode_begin_txn_v2(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 			appendStringInfo(ctx->out, ",\"timestamp\":\"%s\"", timestamptz_to_str(txn->commit_time));
 #endif
 
-#if PG_VERSION_NUM >= 90500
 	if (data->include_origin)
 		appendStringInfo(ctx->out, ",\"origin\":%u", txn->origin_id);
-#endif
 
 	if (data->include_lsn)
 	{
@@ -993,7 +958,7 @@ pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	OutputPluginUpdateProgress(ctx);
 #elif PG_VERSION_NUM >= 110000 && PG_VERSION_NUM < 110017
 	OutputPluginUpdateProgress(ctx);
-#elif PG_VERSION_NUM >= 100000 && PG_VERSION_NUM < 100022
+#elif PG_VERSION_NUM < 100022
 	OutputPluginUpdateProgress(ctx);
 #endif
 
@@ -1053,10 +1018,8 @@ pg_decode_commit_txn_v2(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 			appendStringInfo(ctx->out, ",\"timestamp\":\"%s\"", timestamptz_to_str(txn->commit_time));
 #endif
 
-#if PG_VERSION_NUM >= 90500
 	if (data->include_origin)
 		appendStringInfo(ctx->out, ",\"origin\":%u", txn->origin_id);
-#endif
 
 	if (data->include_lsn)
 	{
@@ -1160,16 +1123,7 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 		char				*outputstr = NULL;
 		bool				isnull;		/* column is null? */
 
-		/*
-		 * Commit d34a74dd064af959acd9040446925d9d53dff15b introduced
-		 * TupleDescAttr() in back branches. If the version supports
-		 * this macro, use it. Version 10 and later already support it.
-		 */
-#if (PG_VERSION_NUM >= 90600 && PG_VERSION_NUM < 90605) || (PG_VERSION_NUM >= 90500 && PG_VERSION_NUM < 90509) || (PG_VERSION_NUM >= 90400 && PG_VERSION_NUM < 90414)
-		attr = tupdesc->attrs[natt];
-#else
 		attr = TupleDescAttr(tupdesc, natt);
-#endif
 
 		elog(DEBUG1, "attribute \"%s\" (%d/%d)", NameStr(attr->attname), natt, tupdesc->natts);
 
@@ -1538,16 +1492,7 @@ pk_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tuple
 		Oid					typid;		/* type of current attribute */
 		HeapTuple			type_tuple;	/* information about a type */
 
-		/*
-		 * Commit d34a74dd064af959acd9040446925d9d53dff15b introduced
-		 * TupleDescAttr() in back branches. If the version supports
-		 * this macro, use it. Version 10 and later already support it.
-		 */
-#if (PG_VERSION_NUM >= 90600 && PG_VERSION_NUM < 90605) || (PG_VERSION_NUM >= 90500 && PG_VERSION_NUM < 90509) || (PG_VERSION_NUM >= 90400 && PG_VERSION_NUM < 90414)
-		attr = tupdesc->attrs[natt];
-#else
 		attr = TupleDescAttr(tupdesc, natt);
-#endif
 
 		/* Do not print dropped or system columns */
 		if (attr->attisdropped || attr->attnum < 0)
@@ -1725,7 +1670,6 @@ pg_add_by_table(List *add_tables, char *schemaname, char *tablename)
  * If partition_root is true and the relation is a partition, resolve the root
  * partitioned table (schema and table). Otherwise, use the relation.
  */
-#if PG_VERSION_NUM >= 100000
 static void
 pg_decode_partition_name(Relation relation, bool partition_root,
 						 char **schemaname, char **tablename)
@@ -1771,7 +1715,6 @@ pg_decode_partition_name(Relation relation, bool partition_root,
 		*tablename = RelationGetRelationName(relation);
 	}
 }
-#endif
 
 /* Callback for individual changed tuples */
 static void
@@ -1838,13 +1781,8 @@ pg_decode_change_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	 * output. If partition-root is enabled, they refer to the root
 	 * partitioned table.
 	 */
-#if PG_VERSION_NUM >= 100000
 	pg_decode_partition_name(relation, data->partition_root,
 							&schemaname, &tablename);
-#else
-	schemaname = get_namespace_name(class_form->relnamespace);
-	tablename = NameStr(class_form->relname);
-#endif
 
 	if (data->write_in_chunks)
 		OutputPluginPrepareWrite(ctx, true);
@@ -1971,22 +1909,13 @@ pg_decode_change_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	appendStringInfo(ctx->out, ",%s", data->nl);
 
 	if (data->include_pk)
-#if PG_VERSION_NUM >= 100000
 		pkbs = RelationGetIndexAttrBitmap(relation, INDEX_ATTR_BITMAP_PRIMARY_KEY);
-#else
-		pkbs = RelationGetIndexAttrBitmap(relation, INDEX_ATTR_BITMAP_KEY);
-#endif
 
 	switch (change->action)
 	{
 		case REORDER_BUFFER_CHANGE_INSERT:
 			/* Print the new tuple */
-#if	PG_VERSION_NUM >= 100000
 			if (data->include_pk && OidIsValid(relation->rd_pkindex))
-#else
-			if (data->include_pk && OidIsValid(relation->rd_replidindex) &&
-					relation->rd_rel->relreplident == REPLICA_IDENTITY_DEFAULT)
-#endif
 			{
 #if	PG_VERSION_NUM >= 170000
 				columns_to_stringinfo(ctx, tupdesc, change->data.tp.newtuple, true, relation);
@@ -2013,12 +1942,7 @@ pg_decode_change_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 			columns_to_stringinfo(ctx, tupdesc, &change->data.tp.newtuple->tuple, true, relation);
 #endif
 
-#if	PG_VERSION_NUM >= 100000
 			if (data->include_pk && OidIsValid(relation->rd_pkindex))
-#else
-			if (data->include_pk && OidIsValid(relation->rd_replidindex) &&
-					relation->rd_rel->relreplident == REPLICA_IDENTITY_DEFAULT)
-#endif
 			{
 #if	PG_VERSION_NUM >= 170000
 				pk_to_stringinfo(ctx, tupdesc, change->data.tp.newtuple, pkbs, true);
@@ -2058,12 +1982,7 @@ pg_decode_change_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 			}
 			break;
 		case REORDER_BUFFER_CHANGE_DELETE:
-#if	PG_VERSION_NUM >= 100000
 			if (data->include_pk && OidIsValid(relation->rd_pkindex))
-#else
-			if (data->include_pk && OidIsValid(relation->rd_replidindex) &&
-					relation->rd_rel->relreplident == REPLICA_IDENTITY_DEFAULT)
-#endif
 			{
 #if	PG_VERSION_NUM >= 170000
 				pk_to_stringinfo(ctx, tupdesc, change->data.tp.oldtuple, pkbs, true);
@@ -2227,11 +2146,7 @@ pg_decode_write_tuple(LogicalDecodingContext *ctx, Relation relation, HeapTuple 
 	}
 	else if (kind == PGOUTPUTJSON_PK)
 	{
-#if PG_VERSION_NUM >= 100000
 		bs = RelationGetIndexAttrBitmap(relation, INDEX_ATTR_BITMAP_PRIMARY_KEY);
-#else
-		bs = RelationGetIndexAttrBitmap(relation, INDEX_ATTR_BITMAP_KEY);
-#endif
 	}
 
 	/* open pg_attrdef in preparation to get default values from columns */
@@ -2248,11 +2163,7 @@ pg_decode_write_tuple(LogicalDecodingContext *ctx, Relation relation, HeapTuple 
 	{
 		Form_pg_attribute	attr;
 
-#if (PG_VERSION_NUM >= 90600 && PG_VERSION_NUM < 90605) || (PG_VERSION_NUM >= 90500 && PG_VERSION_NUM < 90509) || (PG_VERSION_NUM >= 90400 && PG_VERSION_NUM < 90414)
-		attr = tupdesc->attrs[i];
-#else
 		attr = TupleDescAttr(tupdesc, i);
-#endif
 
 		/* skip dropped or system columns */
 		if (attr->attisdropped || attr->attnum < 0)
@@ -2513,10 +2424,8 @@ pg_decode_write_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn, Relat
 		appendStringInfo(ctx->out, ",\"timestamp\":\"%s\"", timestamptz_to_str(txn->commit_time));
 #endif
 
-#if PG_VERSION_NUM >= 90500
 	if (data->include_origin)
 		appendStringInfo(ctx->out, ",\"origin\":%u", txn->origin_id);
-#endif
 
 	if (data->include_lsn)
 	{
@@ -2580,14 +2489,10 @@ pg_decode_write_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn, Relat
 			elog(DEBUG2, "old tuple is null on UPDATE");
 
 			/*
-			 * Before v10, there is not rd_pkindex then rely on REPLICA
-			 * IDENTITY DEFAULT to obtain primary key.
+			 * Identity is obtained from the primary key or the replica
+			 * identity index.
 			 */
-#if PG_VERSION_NUM >= 100000
 			if (OidIsValid(relation->rd_pkindex) || OidIsValid(relation->rd_replidindex))
-#else
-			if (OidIsValid(relation->rd_replidindex))
-#endif
 			{
 				elog(DEBUG1, "REPLICA IDENTITY: obtain old tuple using new tuple");
 				appendStringInfoString(ctx->out, ",\"identity\":[");
@@ -2615,11 +2520,7 @@ pg_decode_write_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn, Relat
 	if (data->include_pk)
 	{
 		appendStringInfoString(ctx->out, ",\"pk\":[");
-#if PG_VERSION_NUM >= 100000
 		if (OidIsValid(relation->rd_pkindex))
-#else
-		if (OidIsValid(relation->rd_replidindex) && relation->rd_rel->relreplident == REPLICA_IDENTITY_DEFAULT)
-#endif
 		{
 #if PG_VERSION_NUM >= 170000
 			if (change->data.tp.oldtuple != NULL)
@@ -2663,13 +2564,8 @@ pg_decode_change_v2(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	 * output. If partition-root is enabled, they refer to the root
 	 * partitioned table.
 	 */
-#if PG_VERSION_NUM >= 100000
 	pg_decode_partition_name(relation, data->partition_root,
 							&schemaname, &tablename);
-#else
-	schemaname = get_namespace_name(RelationGetNamespace(relation));
-	tablename = RelationGetRelationName(relation);
-#endif
 
 	/* Exclude tables, if available */
 	if (pg_filter_by_table(data->filter_tables, schemaname, tablename))
@@ -2693,7 +2589,6 @@ pg_decode_change_v2(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	MemoryContextReset(data->context);
 }
 
-#if PG_VERSION_NUM >= 90600
 /* Callback for generic logical decoding messages */
 static void
 pg_decode_message(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
@@ -2918,7 +2813,6 @@ pg_decode_message_v2(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	MemoryContextSwitchTo(old);
 	MemoryContextReset(data->context);
 }
-#endif
 
 #if PG_VERSION_NUM >= 110000
 /* Callback for TRUNCATE command */
@@ -3082,13 +2976,8 @@ static void pg_decode_truncate_v2(LogicalDecodingContext *ctx,
 		 * output. If partition-root is enabled, they refer to the root
 		 * partitioned table.
 		 */
-#if PG_VERSION_NUM >= 100000
 		pg_decode_partition_name(relations[i], data->partition_root,
 								&schemaname, &tablename);
-#else
-		schemaname = get_namespace_name(RelationGetNamespace(relations[i]));
-		tablename = RelationGetRelationName(relations[i]);
-#endif
 
 		/* Exclude tables, if available */
 		if (pg_filter_by_table(data->filter_tables, schemaname, tablename))
@@ -3458,7 +3347,7 @@ update_replication_progress(LogicalDecodingContext *ctx, bool skipped_xact)
 		changes_count = 0;
 	}
 }
-#elif PG_VERSION_NUM >= 100000 && PG_VERSION_NUM < 150000
+#elif PG_VERSION_NUM < 150000
 static void
 update_replication_progress(LogicalDecodingContext *ctx)
 {

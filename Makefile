@@ -16,33 +16,22 @@ PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
 
-# message API is available in 9.6+
-ifneq (,$(findstring $(MAJORVERSION),9.4 9.5))
-REGRESS := $(filter-out message, $(REGRESS))
-endif
-
 # truncate API is available in 11+
-ifneq (,$(findstring $(MAJORVERSION),9.4 9.5 9.6 10))
+ifeq ($(MAJORVERSION),10)
 REGRESS := $(filter-out truncate, $(REGRESS))
-endif
-
-# partition API is available in 10+
-ifneq (,$(findstring $(MAJORVERSION),9.4 9.5 9.6))
-REGRESS := $(filter-out partition, $(REGRESS))
 endif
 
 # actions API is available in 11+
 # this test should be executed in prior versions, however, truncate will fail.
-ifneq (,$(findstring $(MAJORVERSION),9.4 9.5 9.6 10))
+ifeq ($(MAJORVERSION),10)
 REGRESS := $(filter-out actions, $(REGRESS))
 endif
 
 # make installcheck
 #
-# It can be run but you need to add the following parameters to
+# It can be run but you need to add the following parameter to
 # postgresql.conf:
 #
 # wal_level = logical
-# max_replication_slots = 10
 #
 # Also, you should start the server before executing it.
