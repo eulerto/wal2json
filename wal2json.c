@@ -33,7 +33,9 @@
 #include "utils/json.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
+#if PG_VERSION_NUM < 140000
 #include "utils/pg_lsn.h"
+#endif
 #include "utils/rel.h"
 #include "utils/syscache.h"
 
@@ -207,6 +209,8 @@ static void update_replication_progress(LogicalDecodingContext *ctx, bool skippe
 #elif PG_VERSION_NUM < 150000
 static void update_replication_progress(LogicalDecodingContext *ctx);
 #endif
+
+static void append_lsn(StringInfo out, XLogRecPtr lsn);
 
 void
 _PG_init(void)
@@ -849,11 +853,9 @@ pg_decode_begin_txn_v1(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 
 	if (data->include_lsn)
 	{
-		char *lsn_str = DatumGetCString(DirectFunctionCall1(pg_lsn_out, UInt64GetDatum(txn->end_lsn)));
-
-		appendStringInfo(ctx->out, "%s\"nextlsn\":%s\"%s\",%s", data->ht, data->sp, lsn_str, data->nl);
-
-		pfree(lsn_str);
+		appendStringInfo(ctx->out, "%s\"nextlsn\":%s\"", data->ht, data->sp);
+		append_lsn(ctx->out, txn->end_lsn);
+		appendStringInfo(ctx->out, "\",%s", data->nl);
 	}
 
 #if PG_VERSION_NUM >= 190000
@@ -906,13 +908,11 @@ pg_decode_begin_txn_v2(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 
 	if (data->include_lsn)
 	{
-		char *lsn_str = DatumGetCString(DirectFunctionCall1(pg_lsn_out, UInt64GetDatum(txn->final_lsn)));
-		appendStringInfo(ctx->out, ",\"lsn\":\"%s\"", lsn_str);
-		pfree(lsn_str);
-
-		lsn_str = DatumGetCString(DirectFunctionCall1(pg_lsn_out, UInt64GetDatum(txn->end_lsn)));
-		appendStringInfo(ctx->out, ",\"nextlsn\":\"%s\"", lsn_str);
-		pfree(lsn_str);
+		appendStringInfoString(ctx->out, ",\"lsn\":\"");
+		append_lsn(ctx->out, txn->final_lsn);
+		appendStringInfoString(ctx->out, "\",\"nextlsn\":\"");
+		append_lsn(ctx->out, txn->end_lsn);
+		appendStringInfoChar(ctx->out, '"');
 	}
 
 	appendStringInfoChar(ctx->out, '}');
@@ -1023,13 +1023,11 @@ pg_decode_commit_txn_v2(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 
 	if (data->include_lsn)
 	{
-		char *lsn_str = DatumGetCString(DirectFunctionCall1(pg_lsn_out, UInt64GetDatum(commit_lsn)));
-		appendStringInfo(ctx->out, ",\"lsn\":\"%s\"", lsn_str);
-		pfree(lsn_str);
-
-		lsn_str = DatumGetCString(DirectFunctionCall1(pg_lsn_out, UInt64GetDatum(txn->end_lsn)));
-		appendStringInfo(ctx->out, ",\"nextlsn\":\"%s\"", lsn_str);
-		pfree(lsn_str);
+		appendStringInfoString(ctx->out, ",\"lsn\":\"");
+		append_lsn(ctx->out, commit_lsn);
+		appendStringInfoString(ctx->out, "\",\"nextlsn\":\"");
+		append_lsn(ctx->out, txn->end_lsn);
+		appendStringInfoChar(ctx->out, '"');
 	}
 
 	appendStringInfoChar(ctx->out, '}');
@@ -2429,9 +2427,9 @@ pg_decode_write_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn, Relat
 
 	if (data->include_lsn)
 	{
-		char *lsn_str = DatumGetCString(DirectFunctionCall1(pg_lsn_out, UInt64GetDatum(change->lsn)));
-		appendStringInfo(ctx->out, ",\"lsn\":\"%s\"", lsn_str);
-		pfree(lsn_str);
+		appendStringInfoString(ctx->out, ",\"lsn\":\"");
+		append_lsn(ctx->out, change->lsn);
+		appendStringInfoChar(ctx->out, '"');
 	}
 
 	if (data->include_schemas)
@@ -2788,9 +2786,9 @@ pg_decode_message_v2(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 
 	if (data->include_lsn)
 	{
-		char *lsn_str = DatumGetCString(DirectFunctionCall1(pg_lsn_out, UInt64GetDatum(lsn)));
-		appendStringInfo(ctx->out, ",\"lsn\":\"%s\"", lsn_str);
-		pfree(lsn_str);
+		appendStringInfoString(ctx->out, ",\"lsn\":\"");
+		append_lsn(ctx->out, lsn);
+		appendStringInfoChar(ctx->out, '"');
 	}
 
 	if (transactional)
@@ -2921,9 +2919,9 @@ static void pg_decode_truncate_v1(LogicalDecodingContext *ctx,
 
 	if (data->include_lsn)
 	{
-		char *lsn_str = DatumGetCString(DirectFunctionCall1(pg_lsn_out, UInt64GetDatum(change->lsn)));
-		appendStringInfo(ctx->out, "%s%s%s\"lsn\":%s\"%s\",%s", data->ht, data->ht, data->ht, data->sp, lsn_str, data->nl);
-		pfree(lsn_str);
+		appendStringInfo(ctx->out, "%s%s%s\"lsn\":%s\"", data->ht, data->ht, data->ht, data->sp);
+		append_lsn(ctx->out, change->lsn);
+		appendStringInfo(ctx->out, "\",%s", data->nl);
 	}
 
 	for (i = 0; i < n; i++)
@@ -3018,9 +3016,9 @@ static void pg_decode_truncate_v2(LogicalDecodingContext *ctx,
 
 		if (data->include_lsn)
 		{
-			char *lsn_str = DatumGetCString(DirectFunctionCall1(pg_lsn_out, UInt64GetDatum(change->lsn)));
-			appendStringInfo(ctx->out, ",\"lsn\":\"%s\"", lsn_str);
-			pfree(lsn_str);
+			appendStringInfoString(ctx->out, ",\"lsn\":\"");
+			append_lsn(ctx->out, change->lsn);
+			appendStringInfoChar(ctx->out, '"');
 		}
 
 		if (data->include_schemas)
@@ -3373,3 +3371,22 @@ update_replication_progress(LogicalDecodingContext *ctx)
 	}
 }
 #endif
+
+/*
+ * Append the LSN in the same format as pg_lsn_out(). LSN_FORMAT_ARGS() (14+)
+ * avoids an allocation per LSN.
+ */
+static void
+append_lsn(StringInfo out, XLogRecPtr lsn)
+{
+#if PG_VERSION_NUM >= 190000
+	appendStringInfo(out, "%X/%08X", LSN_FORMAT_ARGS(lsn));
+#elif PG_VERSION_NUM >= 140000
+	appendStringInfo(out, "%X/%X", LSN_FORMAT_ARGS(lsn));
+#else
+	char	*lsn_str = DatumGetCString(DirectFunctionCall1(pg_lsn_out, UInt64GetDatum(lsn)));
+
+	appendStringInfoString(out, lsn_str);
+	pfree(lsn_str);
+#endif
+}
