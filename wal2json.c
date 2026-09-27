@@ -1266,15 +1266,6 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 				escape_json(&coltypes, type_str);
 
 			pfree(type_str);
-
-			/* oldkeys doesn't print not-null constraints */
-			if (!replident && data->include_not_null)
-			{
-				if (attr->attnotnull)
-					appendStringInfo(&colnotnulls, "%sfalse", comma);
-				else
-					appendStringInfo(&colnotnulls, "%strue", comma);
-			}
 		}
 
 		if (data->include_type_oids)
@@ -1284,6 +1275,15 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 
 		if (!replident && data->include_column_positions)
 			appendStringInfo(&colpositions, "%s%d", comma, attr->attnum);
+
+		/* oldkeys doesn't print not-null constraints */
+		if (!replident && data->include_not_null)
+		{
+			if (attr->attnotnull)
+				appendStringInfo(&colnotnulls, "%sfalse", comma);
+			else
+				appendStringInfo(&colnotnulls, "%strue", comma);
+		}
 
 		/*
 		 * Print default for columns.

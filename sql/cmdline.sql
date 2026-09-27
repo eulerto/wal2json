@@ -22,7 +22,9 @@ INSERT INTO table_optional (b, c) VALUES(NULL, TRUE);
 UPDATE table_optional SET b = 123 WHERE a = 1;
 DELETE FROM table_optional WHERE a = 1;
 DROP TABLE table_optional;
-SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'format-version', '1', 'include-xids', '0', 'include-not-null', '1');
+SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '1', 'include-xids', '0', 'include-not-null', '1');
+-- not-null constraints do not depend on include-types
+SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'format-version', '1', 'include-xids', '0', 'include-not-null', '1', 'include-types', '0');
 
 -- By default don't write in chunks
 CREATE TABLE x ();
