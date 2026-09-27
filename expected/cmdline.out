@@ -77,6 +77,20 @@ SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL) whe
 ------
 (0 rows)
 
+-- invalid options raise an ERROR during startup (see the beginning of this
+-- test); the memory context should not leak.
+DO $$
+DECLARE
+	n bigint;
+BEGIN
+	IF current_setting('server_version_num')::int >= 140000 THEN
+		EXECUTE $q$SELECT count(*) FROM pg_backend_memory_contexts WHERE name = 'wal2json output context'$q$ INTO n;
+		IF n > 0 THEN
+			RAISE EXCEPTION '% wal2json output context(s) leaked', n;
+		END IF;
+	END IF;
+END
+$$;
 SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
  ?column? 
 ----------

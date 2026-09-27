@@ -265,7 +265,13 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt, bool is
 	SelectTable	*t;
 
 	data = palloc0(sizeof(JsonDecodingData));
-	data->context = AllocSetContextCreate(TopMemoryContext,
+
+	/*
+	 * Create the memory context under the decoding context. If an invalid
+	 * option raises an ERROR below, the shutdown callback is not called but
+	 * the decoding context is released, hence, this context does not leak.
+	 */
+	data->context = AllocSetContextCreate(ctx->context,
 										"wal2json output context",
 #if PG_VERSION_NUM >= 90600
 										ALLOCSET_DEFAULT_SIZES
