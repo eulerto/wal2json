@@ -33,3 +33,18 @@ SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'fo
 SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '2');
 SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '2', 'filter-tables', '*.table_truncate_5');
 SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
+
+-- partition-root and table filtering use the root partitioned table name
+CREATE TABLE table_truncate_part (a integer, b text) PARTITION BY RANGE (a);
+CREATE TABLE table_truncate_part_1 PARTITION OF table_truncate_part FOR VALUES FROM (0) TO (100);
+
+SELECT 'init' FROM pg_create_logical_replication_slot('regression_slot', 'wal2json');
+
+TRUNCATE table_truncate_part_1;
+
+SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '2');
+SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '2', 'partition-root', '1');
+SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '2', 'partition-root', '1', 'filter-tables', 'public.table_truncate_part');
+SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
+
+DROP TABLE table_truncate_part;

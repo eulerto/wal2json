@@ -38,13 +38,6 @@ SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'fo
 SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '2', 'partition-root', '1', 'add-tables', 'public.orders');
 SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '2', 'partition-root', '1', 'add-tables', 'public.orders_2024');
 
--- truncate uses the same rules
-BEGIN;
-TRUNCATE orders_2024;
-COMMIT;
-SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '2', 'partition-root', '1', 'actions', 'truncate');
-SELECT data FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'format-version', '2', 'partition-root', '1', 'actions', 'truncate', 'filter-tables', 'public.orders');
-
 SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
 
 DROP TABLE orders;
