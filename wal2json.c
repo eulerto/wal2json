@@ -1229,15 +1229,19 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 				}
 				else
 				{
+					HeapTuple		base_tuple;
+					Form_pg_type	base_form;
+
 					/*
 					 * Since we are not using a format function, grab base type
 					 * name from Form_pg_type.
 					 */
-					type_tuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(typid));
-					if (!HeapTupleIsValid(type_tuple))
+					base_tuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(typid));
+					if (!HeapTupleIsValid(base_tuple))
 						elog(ERROR, "cache lookup failed for type %u", typid);
-					type_form = (Form_pg_type) GETSTRUCT(type_tuple);
-					type_str = pstrdup(NameStr(type_form->typname));
+					base_form = (Form_pg_type) GETSTRUCT(base_tuple);
+					type_str = pstrdup(NameStr(base_form->typname));
+					ReleaseSysCache(base_tuple);
 				}
 			}
 			else
@@ -1582,15 +1586,19 @@ pk_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tuple
 				}
 				else
 				{
+					HeapTuple		base_tuple;
+					Form_pg_type	base_form;
+
 					/*
 					 * Since we are not using a format function, grab base type
 					 * name from Form_pg_type.
 					 */
-					type_tuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(typid));
-					if (!HeapTupleIsValid(type_tuple))
+					base_tuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(typid));
+					if (!HeapTupleIsValid(base_tuple))
 						elog(ERROR, "cache lookup failed for type %u", typid);
-					type_form = (Form_pg_type) GETSTRUCT(type_tuple);
-					type_str = pstrdup(NameStr(type_form->typname));
+					base_form = (Form_pg_type) GETSTRUCT(base_tuple);
+					type_str = pstrdup(NameStr(base_form->typname));
+					ReleaseSysCache(base_tuple);
 				}
 			}
 			else
