@@ -2282,6 +2282,8 @@ pg_decode_write_tuple(LogicalDecodingContext *ctx, Relation relation, HeapTuple 
 			int				len;
 
 			type_tuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(attr->atttypid));
+			if (!HeapTupleIsValid(type_tuple))
+				elog(ERROR, "cache lookup failed for type %u", attr->atttypid);
 			type_form = (Form_pg_type) GETSTRUCT(type_tuple);
 
 			/*
