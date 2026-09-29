@@ -1,5 +1,4 @@
--- this is the first test (CREATE EXTENSION, no DROP TABLE)
-LOAD 'test_decoding';
+-- this is the first test (no DROP TABLE)
 
 \set VERBOSITY terse
 
