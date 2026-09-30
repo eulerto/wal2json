@@ -1,6 +1,9 @@
 /regression.diffs
 /regression.out
 /results/
+/.deps/
+/log/
 /wal2json.bc
 /wal2json.so
 *.o
+*.dylib
