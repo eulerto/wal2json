@@ -3241,7 +3241,11 @@ string_to_SelectTable(char *rawstring, char separator, List **select_tables)
 		while (*nextp && *nextp != separator && !isspace(*nextp))
 		{
 			if (*nextp == '\\')
+			{
 				nextp++;	/* ignore next character because of escape */
+				if (*nextp == '\0')
+					return false;	/* trailing escape character is not allowed */
+			}
 			nextp++;
 		}
 		endp = nextp;
@@ -3308,7 +3312,11 @@ split_string_to_list(char *rawstring, char separator, List **sl)
 		while (*nextp && *nextp != separator && !isspace(*nextp))
 		{
 			if (*nextp == '\\')
+			{
 				nextp++;	/* ignore next character because of escape */
+				if (*nextp == '\0')
+					return false;	/* trailing escape character is not allowed */
+			}
 			nextp++;
 		}
 		endp = nextp;
@@ -3373,7 +3381,11 @@ split_string_to_oid_list(char *rawstring, char separator, List **sl)
 		while (*nextp && *nextp != separator && !isspace(*nextp))
 		{
 			if (*nextp == '\\')
+			{
 				nextp++;	/* ignore next character because of escape */
+				if (*nextp == '\0')
+					return false;	/* trailing escape character is not allowed */
+			}
 			nextp++;
 		}
 		endp = nextp;
