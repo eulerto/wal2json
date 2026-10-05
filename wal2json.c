@@ -1256,13 +1256,18 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 
 			appendStringInfo(&coltypes, "%s", comma);
 			/*
-			 * format_type() returns a quoted identifier, if
-			 * required. In this case, it doesn't need to enclose the type name
-			 * in double quotes. However, if it is an array type, it should
-			 * escape it because the brackets are outside the double quotes.
+			 * format_type() quotes the type name if the identifier requires
+			 * it. When the whole string is a single quoted identifier (e.g.
+			 * "FooBar"), it is already a valid JSON string, so emit it as-is
+			 * to avoid doubling the double quotes. In every other case the
+			 * string must be escaped to produce valid JSON: an array type has
+			 * its brackets outside the double quotes (e.g. "FooBar"[]), and a
+			 * schema-qualified name has only part of the string quoted (e.g.
+			 * "int".int_pi_document_type).
 			 */
 			len = strlen(type_str);
-			if (type_str[0] == '"' && type_str[len - 1] != ']')
+			if (len >= 2 && type_str[0] == '"' && type_str[len - 1] == '"' &&
+				strchr(type_str + 1, '"') == type_str + len - 1)
 				appendStringInfo(&coltypes, "%s", type_str);
 			else
 				escape_json(&coltypes, type_str);
@@ -1564,6 +1569,7 @@ pk_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tuple
 		if (data->include_types)
 		{
 			char	*type_str;
+			int		len;
 			Form_pg_type type_form = (Form_pg_type) GETSTRUCT(type_tuple);
 
 			/*
@@ -1604,11 +1610,18 @@ pk_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tuple
 
 			appendStringInfo(&pktypes, "%s", comma);
 			/*
-			 * format_type() returns a quoted identifier, if
-			 * required. In this case, it doesn't need to enclose the type name
-			 * in double quotes.
+			 * format_type() quotes the type name if the identifier requires
+			 * it. When the whole string is a single quoted identifier (e.g.
+			 * "FooBar"), it is already a valid JSON string, so emit it as-is
+			 * to avoid doubling the double quotes. In every other case the
+			 * string must be escaped to produce valid JSON: an array type has
+			 * its brackets outside the double quotes (e.g. "FooBar"[]), and a
+			 * schema-qualified name has only part of the string quoted (e.g.
+			 * "int".int_pi_document_type).
 			 */
-			if (type_str[0] == '"')
+			len = strlen(type_str);
+			if (len >= 2 && type_str[0] == '"' && type_str[len - 1] == '"' &&
+				strchr(type_str + 1, '"') == type_str + len - 1)
 				appendStringInfo(&pktypes, "%s", type_str);
 			else
 				escape_json(&pktypes, type_str);
@@ -2261,13 +2274,18 @@ pg_decode_write_tuple(LogicalDecodingContext *ctx, Relation relation, HeapTuple 
 
 			appendStringInfoString(ctx->out, ",\"type\":");
 			/*
-			 * format_type_with_typemod() returns a quoted identifier, if
-			 * required. In this case, it doesn't need to enclose the type name
-			 * in double quotes. However, if it is an array type, it should
-			 * escape it because the brackets are outside the double quotes.
+			 * format_type_with_typemod() quotes the type name if the
+			 * identifier requires it. When the whole string is a single quoted
+			 * identifier (e.g. "FooBar"), it is already a valid JSON string, so
+			 * emit it as-is to avoid doubling the double quotes. In every other
+			 * case the string must be escaped to produce valid JSON: an array
+			 * type has its brackets outside the double quotes (e.g. "FooBar"[]),
+			 * and a schema-qualified name has only part of the string quoted
+			 * (e.g. "int".int_pi_document_type).
 			 */
 			len = strlen(type_str);
-			if (type_str[0] == '"' && type_str[len -1] != ']')
+			if (len >= 2 && type_str[0] == '"' && type_str[len - 1] == '"' &&
+				strchr(type_str + 1, '"') == type_str + len - 1)
 				appendStringInfo(ctx->out, "%s", type_str);
 			else
 				escape_json(ctx->out, type_str);
