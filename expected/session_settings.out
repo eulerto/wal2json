@@ -1,0 +1,80 @@
+\set VERBOSITY terse
+-- predictability
+SET synchronous_commit = on;
+DROP TABLE IF EXISTS xpto;
+CREATE TABLE xpto (
+id			int primary key,
+ts			timestamptz,
+d			date,
+iv			interval,
+f			float8
+);
+SELECT 'init' FROM pg_create_logical_replication_slot('regression_slot', 'wal2json');
+ ?column? 
+----------
+ init
+(1 row)
+
+INSERT INTO xpto VALUES (1, '2020-02-03 04:05:06.789+00', '2020-02-03', '1 year 2 months 3 days 04:05:06', 1048576.00390625);
+-- the emitted values do not follow the reader's formatting settings
+SET DateStyle = 'SQL, DMY';
+SET IntervalStyle = 'sql_standard';
+SET TimeZone = 'America/New_York';
+SET extra_float_digits = -3;
+SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '1');
+                                                                                                                                                      data                                                                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"change":[{"kind":"insert","schema":"public","table":"xpto","columnnames":["id","ts","d","iv","f"],"columntypes":["integer","timestamp with time zone","date","interval","double precision"],"columnvalues":[1,"2020-02-03 04:05:06.789+00","2020-02-03","1 year 2 mons 3 days 04:05:06",1048576.00390625]}]}
+(1 row)
+
+SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '2');
+                                                                                                                                                                                       data                                                                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"action":"B"}
+ {"action":"I","schema":"public","table":"xpto","columns":[{"name":"id","type":"integer","value":1},{"name":"ts","type":"timestamp with time zone","value":"2020-02-03 04:05:06.789+00"},{"name":"d","type":"date","value":"2020-02-03"},{"name":"iv","type":"interval","value":"1 year 2 mons 3 days 04:05:06"},{"name":"f","type":"double precision","value":1048576.00390625}]}
+ {"action":"C"}
+(3 rows)
+
+-- reading the slot leaves the session alone
+SHOW DateStyle;
+ DateStyle 
+-----------
+ SQL, DMY
+(1 row)
+
+SHOW IntervalStyle;
+ IntervalStyle 
+---------------
+ sql_standard
+(1 row)
+
+SHOW TimeZone;
+     TimeZone     
+------------------
+ America/New_York
+(1 row)
+
+SHOW extra_float_digits;
+ extra_float_digits 
+--------------------
+ -3
+(1 row)
+
+RESET DateStyle;
+RESET IntervalStyle;
+RESET TimeZone;
+RESET extra_float_digits;
+SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '2');
+                                                                                                                                                                                       data                                                                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"action":"B"}
+ {"action":"I","schema":"public","table":"xpto","columns":[{"name":"id","type":"integer","value":1},{"name":"ts","type":"timestamp with time zone","value":"2020-02-03 04:05:06.789+00"},{"name":"d","type":"date","value":"2020-02-03"},{"name":"iv","type":"interval","value":"1 year 2 mons 3 days 04:05:06"},{"name":"f","type":"double precision","value":1048576.00390625}]}
+ {"action":"C"}
+(3 rows)
+
+SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
+ ?column? 
+----------
+ stop
+(1 row)
+
