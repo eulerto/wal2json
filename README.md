@@ -17,13 +17,13 @@ This module is supported on [those platforms](http://www.postgresql.org/docs/cur
 In Red Hat/CentOS:
 
 ```
-$ sudo yum install wal2json_17
+$ sudo yum install wal2json_18
 ```
 
 In Debian/Ubuntu:
 
 ```
-$ sudo apt-get install postgresql-17-wal2json
+$ sudo apt-get install postgresql-18-wal2json
 ```
 
 You can also keep up with the latest fixes and features cloning the Git repository.
@@ -35,14 +35,14 @@ $ git clone https://github.com/eulerto/wal2json.git
 Unix based Operating Systems
 ----------------------------
 
-Before installing **wal2json**, you should have PostgreSQL 10+ installed (including the header files). If PostgreSQL is not in your search path, add it. If you are using [PostgreSQL yum repository](https://yum.postgresql.org), install `postgresql17-devel` and add `/usr/pgsql-17/bin` to your search path (yum uses `17, 16, 15, 14, 13, 12, 11 or 10`). If you are using [PostgreSQL apt repository](https://wiki.postgresql.org/wiki/Apt), install `postgresql-server-dev-17` and add `/usr/lib/postgresql/17/bin` to your search path. (apt uses `17, 16, 15, 14, 13, 12, 11 or 10`).
+Before installing **wal2json**, you should have PostgreSQL 10+ installed (including the header files). If PostgreSQL is not in your search path, add it. If you are using [PostgreSQL yum repository](https://yum.postgresql.org), install `postgresql18-devel` and add `/usr/pgsql-18/bin` to your search path (yum uses `18, 17, 16, 15, 14, 13, 12, 11 or 10`). If you are using [PostgreSQL apt repository](https://wiki.postgresql.org/wiki/Apt), install `postgresql-server-dev-18` and add `/usr/lib/postgresql/18/bin` to your search path. (apt uses `18, 17, 16, 15, 14, 13, 12, 11 or 10`).
 
-If you compile PostgreSQL by yourself and install it in `/home/euler/pg17`:
+If you compile PostgreSQL by yourself and install it in `$HOME/pg18`:
 
 ```
-$ tar -zxf wal2json-wal2json_2_6.tar.gz
-$ cd wal2json-wal2json_2_6
-$ export PATH=/home/euler/pg17/bin:$PATH
+$ tar -zxf wal2json-wal2json_2_7.tar.gz
+$ cd wal2json-wal2json_2_7
+$ export PATH=$HOME/pg18/bin:$PATH
 $ make
 $ make install
 ```
@@ -50,10 +50,10 @@ $ make install
 If you are using [PostgreSQL yum repository](https://yum.postgresql.org):
 
 ```
-$ sudo yum install postgresql17-devel
-$ tar -zxf wal2json-wal2json_2_6.tar.gz
-$ cd wal2json-wal2json_2_6
-$ export PATH=/usr/pgsql-17/bin:$PATH
+$ sudo yum install postgresql18-devel
+$ tar -zxf wal2json-wal2json_2_7.tar.gz
+$ cd wal2json-wal2json_2_7
+$ export PATH=/usr/pgsql-18/bin:$PATH
 $ make
 $ make install
 ```
@@ -61,10 +61,10 @@ $ make install
 If you are using [PostgreSQL apt repository](https://wiki.postgresql.org/wiki/Apt):
 
 ```
-$ sudo apt-get install postgresql-server-dev-17
-$ tar -zxf wal2json-wal2json_2_6.tar.gz
-$ cd wal2json-wal2json_2_6
-$ export PATH=/usr/lib/postgresql/17/bin:$PATH
+$ sudo apt-get install postgresql-server-dev-18
+$ tar -zxf wal2json-wal2json_2_7.tar.gz
+$ cd wal2json-wal2json_2_7
+$ export PATH=/usr/lib/postgresql/18/bin:$PATH
 $ make
 $ make install
 ```
@@ -72,7 +72,7 @@ $ make install
 Windows
 -------
 
-There are several ways to build **wal2json** on Windows. If you are build PostgreSQL too, you can put **wal2json** directory inside contrib, change the contrib Makefile (variable SUBDIRS) and build it following the [Installation from Source Code on Windows](http://www.postgresql.org/docs/current/static/install-windows.html) instructions. However, if you already have PostgreSQL installed, it is also possible to compile **wal2json** out of the tree. Edit `wal2json.vcxproj` file and change `c:\pg\17` to the PostgreSQL prefix directory. The next step is to open this project file in MS Visual Studio and compile it. Final step is to copy `wal2json.dll` to the `pg_config --pkglibdir` directory.
+There are several ways to build **wal2json** on Windows. If you are build PostgreSQL too, you can put **wal2json** directory inside contrib, change the contrib Makefile (variable SUBDIRS) and build it following the [Installation from Source Code on Windows](http://www.postgresql.org/docs/current/static/install-windows.html) instructions. However, if you already have PostgreSQL installed, it is also possible to compile **wal2json** out of the tree. Edit `wal2json.vcxproj` file and change `c:\pg\18` to the PostgreSQL prefix directory. The next step is to open this project file in MS Visual Studio and compile it. Final step is to copy `wal2json.dll` to the `pg_config --pkglibdir` directory.
 
 Configuration
 =============
