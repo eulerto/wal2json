@@ -1333,7 +1333,8 @@ tuple_to_stringinfo(LogicalDecodingContext *ctx, TupleDesc tupdesc, HeapTuple tu
 																	def_value,
 																	ObjectIdGetDatum(relation->rd_id)));
 
-						appendStringInfo(&coldefaults, "%s\"%s\"", comma, result);
+						appendStringInfoString(&coldefaults, comma);
+						escape_json(&coldefaults, result);
 						pfree(result);
 					}
 					else
@@ -2373,7 +2374,7 @@ pg_decode_write_tuple(LogicalDecodingContext *ctx, Relation relation, HeapTuple 
 																	ObjectIdGetDatum(relation->rd_id)));
 
 						appendStringInfoString(ctx->out, ",\"default\":");
-						appendStringInfo(ctx->out, "\"%s\"", result);
+						escape_json(ctx->out, result);
 						pfree(result);
 					}
 					else

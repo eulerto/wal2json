@@ -3,6 +3,10 @@
 SET synchronous_commit = on;
 CREATE TABLE w2j_default (a serial, b integer DEFAULT 6, c text DEFAULT 'wal2json', d timestamp DEFAULT '2020-07-12 11:55:30', e integer DEFAULT NULL, f integer, PRIMARY KEY(a));
 CREATE TABLE w2j_truncate (a serial primary key, b text not null);
+-- default expressions whose text contains a double quote, a backslash and a
+-- control character (tab); these must be escaped like every other string or
+-- the emitted JSON is invalid
+CREATE TABLE w2j_default_escape (a serial PRIMARY KEY, b text DEFAULT 'a "quoted" default', c text DEFAULT 'back\slash', d text DEFAULT E'tab\there');
 SELECT 'init' FROM pg_create_logical_replication_slot('regression_slot', 'wal2json');
  ?column? 
 ----------
@@ -85,6 +89,45 @@ SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'fo
  {"action":"C"}
 (18 rows)
 
+-- drain the changes emitted above so the default-escaping check below is
+-- reported on its own
+SELECT count(*) > 0 AS drained FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'format-version', '1');
+ drained 
+---------
+ t
+(1 row)
+
+INSERT INTO w2j_default_escape DEFAULT VALUES;
+-- show the escaped default expressions ...
+SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '1', 'include-default', '1');
+                                                                                                                                                                                     data                                                                                                                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"change":[{"kind":"insert","schema":"public","table":"w2j_default_escape","columnnames":["a","b","c","d"],"columntypes":["integer","text","text","text"],"columndefaults":["nextval('w2j_default_escape_a_seq'::regclass)","'a \"quoted\" default'::text","'back\\slash'::text","'tab\there'::text"],"columnvalues":[1,"a \"quoted\" default","back\\slash","tab\there"]}]}
+(1 row)
+
+SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '2', 'include-default', '1');
+                                                                                                                                                                                                                     data                                                                                                                                                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"action":"B"}
+ {"action":"I","schema":"public","table":"w2j_default_escape","columns":[{"name":"a","type":"integer","value":1,"default":"nextval('w2j_default_escape_a_seq'::regclass)"},{"name":"b","type":"text","value":"a \"quoted\" default","default":"'a \"quoted\" default'::text"},{"name":"c","type":"text","value":"back\\slash","default":"'back\\slash'::text"},{"name":"d","type":"text","value":"tab\there","default":"'tab\there'::text"}]}
+ {"action":"C"}
+(3 rows)
+
+-- ... and prove the output is valid JSON by casting every row to json
+SELECT data::json IS NOT NULL AS valid FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '1', 'include-default', '1');
+ valid 
+-------
+ t
+(1 row)
+
+SELECT data::json IS NOT NULL AS valid FROM pg_logical_slot_get_changes('regression_slot', NULL, NULL, 'format-version', '2', 'include-default', '1');
+ valid 
+-------
+ t
+ t
+ t
+(3 rows)
+
 SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
  ?column? 
 ----------
@@ -93,3 +136,4 @@ SELECT 'stop' FROM pg_drop_replication_slot('regression_slot');
 
 DROP TABLE w2j_default;
 DROP TABLE w2j_truncate;
+DROP TABLE w2j_default_escape;
