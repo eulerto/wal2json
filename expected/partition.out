@@ -23,13 +23,13 @@ DELETE FROM orders WHERE id = 2;
 COMMIT;
 -- default (partition-root is false): partition name is used
 SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '2');
-                                                                                                                                                                                                                    data                                                                                                                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                               data                                                                                                                                                                                                               
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"action":"B"}
- {"action":"I","schema":"public","table":"orders_2024","columns":[{"name":"id","type":"integer","value":1},{"name":"info","type":"text","value":"test1"},{"name":"ts","type":"timestamp without time zone","value":"Sat Jun 15 00:00:00 2024"}]}
- {"action":"I","schema":"public","table":"orders_2025_low","columns":[{"name":"id","type":"integer","value":2},{"name":"info","type":"text","value":"test2"},{"name":"ts","type":"timestamp without time zone","value":"Sat Mar 01 00:00:00 2025"}]}
- {"action":"U","schema":"public","table":"orders_2024","columns":[{"name":"id","type":"integer","value":1},{"name":"info","type":"text","value":"test1u"},{"name":"ts","type":"timestamp without time zone","value":"Sat Jun 15 00:00:00 2024"}],"identity":[{"name":"id","type":"integer","value":1},{"name":"info","type":"text","value":"test1"},{"name":"ts","type":"timestamp without time zone","value":"Sat Jun 15 00:00:00 2024"}]}
- {"action":"D","schema":"public","table":"orders_2025_low","identity":[{"name":"id","type":"integer","value":2},{"name":"info","type":"text","value":"test2"},{"name":"ts","type":"timestamp without time zone","value":"Sat Mar 01 00:00:00 2025"}]}
+ {"action":"I","schema":"public","table":"orders_2024","columns":[{"name":"id","type":"integer","value":1},{"name":"info","type":"text","value":"test1"},{"name":"ts","type":"timestamp without time zone","value":"2024-06-15 00:00:00"}]}
+ {"action":"I","schema":"public","table":"orders_2025_low","columns":[{"name":"id","type":"integer","value":2},{"name":"info","type":"text","value":"test2"},{"name":"ts","type":"timestamp without time zone","value":"2025-03-01 00:00:00"}]}
+ {"action":"U","schema":"public","table":"orders_2024","columns":[{"name":"id","type":"integer","value":1},{"name":"info","type":"text","value":"test1u"},{"name":"ts","type":"timestamp without time zone","value":"2024-06-15 00:00:00"}],"identity":[{"name":"id","type":"integer","value":1},{"name":"info","type":"text","value":"test1"},{"name":"ts","type":"timestamp without time zone","value":"2024-06-15 00:00:00"}]}
+ {"action":"D","schema":"public","table":"orders_2025_low","identity":[{"name":"id","type":"integer","value":2},{"name":"info","type":"text","value":"test2"},{"name":"ts","type":"timestamp without time zone","value":"2025-03-01 00:00:00"}]}
  {"action":"C"}
 (6 rows)
 
@@ -44,7 +44,7 @@ SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'fo
                          "table": "orders_2024",                                                +
                          "columnnames": ["id", "info", "ts"],                                   +
                          "columntypes": ["integer", "text", "timestamp without time zone"],     +
-                         "columnvalues": [1, "test1", "Sat Jun 15 00:00:00 2024"]               +
+                         "columnvalues": [1, "test1", "2024-06-15 00:00:00"]                    +
                  }                                                                              +
                  ,{                                                                             +
                          "kind": "insert",                                                      +
@@ -52,7 +52,7 @@ SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'fo
                          "table": "orders_2025_low",                                            +
                          "columnnames": ["id", "info", "ts"],                                   +
                          "columntypes": ["integer", "text", "timestamp without time zone"],     +
-                         "columnvalues": [2, "test2", "Sat Mar 01 00:00:00 2025"]               +
+                         "columnvalues": [2, "test2", "2025-03-01 00:00:00"]                    +
                  }                                                                              +
                  ,{                                                                             +
                          "kind": "update",                                                      +
@@ -60,11 +60,11 @@ SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'fo
                          "table": "orders_2024",                                                +
                          "columnnames": ["id", "info", "ts"],                                   +
                          "columntypes": ["integer", "text", "timestamp without time zone"],     +
-                         "columnvalues": [1, "test1u", "Sat Jun 15 00:00:00 2024"],             +
+                         "columnvalues": [1, "test1u", "2024-06-15 00:00:00"],                  +
                          "oldkeys": {                                                           +
                                  "keynames": ["id", "info", "ts"],                              +
                                  "keytypes": ["integer", "text", "timestamp without time zone"],+
-                                 "keyvalues": [1, "test1", "Sat Jun 15 00:00:00 2024"]          +
+                                 "keyvalues": [1, "test1", "2024-06-15 00:00:00"]               +
                          }                                                                      +
                  }                                                                              +
                  ,{                                                                             +
@@ -74,7 +74,7 @@ SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'fo
                          "oldkeys": {                                                           +
                                  "keynames": ["id", "info", "ts"],                              +
                                  "keytypes": ["integer", "text", "timestamp without time zone"],+
-                                 "keyvalues": [2, "test2", "Sat Mar 01 00:00:00 2025"]          +
+                                 "keyvalues": [2, "test2", "2025-03-01 00:00:00"]               +
                          }                                                                      +
                  }                                                                              +
          ]                                                                                      +
@@ -83,13 +83,13 @@ SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'fo
 
 -- partition-root is true: root partitioned table name is used
 SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '2', 'partition-root', '1');
-                                                                                                                                                                                                                 data                                                                                                                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                            data                                                                                                                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"action":"B"}
- {"action":"I","schema":"public","table":"orders","columns":[{"name":"id","type":"integer","value":1},{"name":"info","type":"text","value":"test1"},{"name":"ts","type":"timestamp without time zone","value":"Sat Jun 15 00:00:00 2024"}]}
- {"action":"I","schema":"public","table":"orders","columns":[{"name":"id","type":"integer","value":2},{"name":"info","type":"text","value":"test2"},{"name":"ts","type":"timestamp without time zone","value":"Sat Mar 01 00:00:00 2025"}]}
- {"action":"U","schema":"public","table":"orders","columns":[{"name":"id","type":"integer","value":1},{"name":"info","type":"text","value":"test1u"},{"name":"ts","type":"timestamp without time zone","value":"Sat Jun 15 00:00:00 2024"}],"identity":[{"name":"id","type":"integer","value":1},{"name":"info","type":"text","value":"test1"},{"name":"ts","type":"timestamp without time zone","value":"Sat Jun 15 00:00:00 2024"}]}
- {"action":"D","schema":"public","table":"orders","identity":[{"name":"id","type":"integer","value":2},{"name":"info","type":"text","value":"test2"},{"name":"ts","type":"timestamp without time zone","value":"Sat Mar 01 00:00:00 2025"}]}
+ {"action":"I","schema":"public","table":"orders","columns":[{"name":"id","type":"integer","value":1},{"name":"info","type":"text","value":"test1"},{"name":"ts","type":"timestamp without time zone","value":"2024-06-15 00:00:00"}]}
+ {"action":"I","schema":"public","table":"orders","columns":[{"name":"id","type":"integer","value":2},{"name":"info","type":"text","value":"test2"},{"name":"ts","type":"timestamp without time zone","value":"2025-03-01 00:00:00"}]}
+ {"action":"U","schema":"public","table":"orders","columns":[{"name":"id","type":"integer","value":1},{"name":"info","type":"text","value":"test1u"},{"name":"ts","type":"timestamp without time zone","value":"2024-06-15 00:00:00"}],"identity":[{"name":"id","type":"integer","value":1},{"name":"info","type":"text","value":"test1"},{"name":"ts","type":"timestamp without time zone","value":"2024-06-15 00:00:00"}]}
+ {"action":"D","schema":"public","table":"orders","identity":[{"name":"id","type":"integer","value":2},{"name":"info","type":"text","value":"test2"},{"name":"ts","type":"timestamp without time zone","value":"2025-03-01 00:00:00"}]}
  {"action":"C"}
 (6 rows)
 
@@ -104,7 +104,7 @@ SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'fo
                          "table": "orders",                                                     +
                          "columnnames": ["id", "info", "ts"],                                   +
                          "columntypes": ["integer", "text", "timestamp without time zone"],     +
-                         "columnvalues": [1, "test1", "Sat Jun 15 00:00:00 2024"]               +
+                         "columnvalues": [1, "test1", "2024-06-15 00:00:00"]                    +
                  }                                                                              +
                  ,{                                                                             +
                          "kind": "insert",                                                      +
@@ -112,7 +112,7 @@ SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'fo
                          "table": "orders",                                                     +
                          "columnnames": ["id", "info", "ts"],                                   +
                          "columntypes": ["integer", "text", "timestamp without time zone"],     +
-                         "columnvalues": [2, "test2", "Sat Mar 01 00:00:00 2025"]               +
+                         "columnvalues": [2, "test2", "2025-03-01 00:00:00"]                    +
                  }                                                                              +
                  ,{                                                                             +
                          "kind": "update",                                                      +
@@ -120,11 +120,11 @@ SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'fo
                          "table": "orders",                                                     +
                          "columnnames": ["id", "info", "ts"],                                   +
                          "columntypes": ["integer", "text", "timestamp without time zone"],     +
-                         "columnvalues": [1, "test1u", "Sat Jun 15 00:00:00 2024"],             +
+                         "columnvalues": [1, "test1u", "2024-06-15 00:00:00"],                  +
                          "oldkeys": {                                                           +
                                  "keynames": ["id", "info", "ts"],                              +
                                  "keytypes": ["integer", "text", "timestamp without time zone"],+
-                                 "keyvalues": [1, "test1", "Sat Jun 15 00:00:00 2024"]          +
+                                 "keyvalues": [1, "test1", "2024-06-15 00:00:00"]               +
                          }                                                                      +
                  }                                                                              +
                  ,{                                                                             +
@@ -134,7 +134,7 @@ SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'fo
                          "oldkeys": {                                                           +
                                  "keynames": ["id", "info", "ts"],                              +
                                  "keytypes": ["integer", "text", "timestamp without time zone"],+
-                                 "keyvalues": [2, "test2", "Sat Mar 01 00:00:00 2025"]          +
+                                 "keyvalues": [2, "test2", "2025-03-01 00:00:00"]               +
                          }                                                                      +
                  }                                                                              +
          ]                                                                                      +
@@ -143,11 +143,11 @@ SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'fo
 
 -- table filtering uses the partition name if partition-root is false
 SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '2', 'filter-tables', 'public.orders_2024');
-                                                                                                                         data                                                                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                      data                                                                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"action":"B"}
- {"action":"I","schema":"public","table":"orders_2025_low","columns":[{"name":"id","type":"integer","value":2},{"name":"info","type":"text","value":"test2"},{"name":"ts","type":"timestamp without time zone","value":"Sat Mar 01 00:00:00 2025"}]}
- {"action":"D","schema":"public","table":"orders_2025_low","identity":[{"name":"id","type":"integer","value":2},{"name":"info","type":"text","value":"test2"},{"name":"ts","type":"timestamp without time zone","value":"Sat Mar 01 00:00:00 2025"}]}
+ {"action":"I","schema":"public","table":"orders_2025_low","columns":[{"name":"id","type":"integer","value":2},{"name":"info","type":"text","value":"test2"},{"name":"ts","type":"timestamp without time zone","value":"2025-03-01 00:00:00"}]}
+ {"action":"D","schema":"public","table":"orders_2025_low","identity":[{"name":"id","type":"integer","value":2},{"name":"info","type":"text","value":"test2"},{"name":"ts","type":"timestamp without time zone","value":"2025-03-01 00:00:00"}]}
  {"action":"C"}
 (4 rows)
 
@@ -167,13 +167,13 @@ SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'fo
 (2 rows)
 
 SELECT data FROM pg_logical_slot_peek_changes('regression_slot', NULL, NULL, 'format-version', '2', 'partition-root', '1', 'add-tables', 'public.orders');
-                                                                                                                                                                                                                 data                                                                                                                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                            data                                                                                                                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"action":"B"}
- {"action":"I","schema":"public","table":"orders","columns":[{"name":"id","type":"integer","value":1},{"name":"info","type":"text","value":"test1"},{"name":"ts","type":"timestamp without time zone","value":"Sat Jun 15 00:00:00 2024"}]}
- {"action":"I","schema":"public","table":"orders","columns":[{"name":"id","type":"integer","value":2},{"name":"info","type":"text","value":"test2"},{"name":"ts","type":"timestamp without time zone","value":"Sat Mar 01 00:00:00 2025"}]}
- {"action":"U","schema":"public","table":"orders","columns":[{"name":"id","type":"integer","value":1},{"name":"info","type":"text","value":"test1u"},{"name":"ts","type":"timestamp without time zone","value":"Sat Jun 15 00:00:00 2024"}],"identity":[{"name":"id","type":"integer","value":1},{"name":"info","type":"text","value":"test1"},{"name":"ts","type":"timestamp without time zone","value":"Sat Jun 15 00:00:00 2024"}]}
- {"action":"D","schema":"public","table":"orders","identity":[{"name":"id","type":"integer","value":2},{"name":"info","type":"text","value":"test2"},{"name":"ts","type":"timestamp without time zone","value":"Sat Mar 01 00:00:00 2025"}]}
+ {"action":"I","schema":"public","table":"orders","columns":[{"name":"id","type":"integer","value":1},{"name":"info","type":"text","value":"test1"},{"name":"ts","type":"timestamp without time zone","value":"2024-06-15 00:00:00"}]}
+ {"action":"I","schema":"public","table":"orders","columns":[{"name":"id","type":"integer","value":2},{"name":"info","type":"text","value":"test2"},{"name":"ts","type":"timestamp without time zone","value":"2025-03-01 00:00:00"}]}
+ {"action":"U","schema":"public","table":"orders","columns":[{"name":"id","type":"integer","value":1},{"name":"info","type":"text","value":"test1u"},{"name":"ts","type":"timestamp without time zone","value":"2024-06-15 00:00:00"}],"identity":[{"name":"id","type":"integer","value":1},{"name":"info","type":"text","value":"test1"},{"name":"ts","type":"timestamp without time zone","value":"2024-06-15 00:00:00"}]}
+ {"action":"D","schema":"public","table":"orders","identity":[{"name":"id","type":"integer","value":2},{"name":"info","type":"text","value":"test2"},{"name":"ts","type":"timestamp without time zone","value":"2025-03-01 00:00:00"}]}
  {"action":"C"}
 (6 rows)
 
