@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
+  pull_request:
+    branches: [master]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container: pgxn/pgxn-tools
+    strategy:
+      matrix:
+        pg: [19, 18, 17, 16, 15, 14, 13, 12, 11, 10]
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v5
+      - name: Start PostgreSQL ${{ matrix.pg }}
+        run: pg-start ${{ matrix.pg }}
+      - name: Build and test
+        run: |
+          chown -R postgres:postgres .
+          gosu postgres pg-build-test
