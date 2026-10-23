@@ -11,7 +11,7 @@ REGRESS = cmdline insert1 update1 update2 update3 update4 delete1 delete2 \
 # contains non-ASCII characters, hence, the regression database must be
 # created as UTF8. Otherwise, it fails if the cluster was initialized with
 # another encoding (such as SQL_ASCII).
-REGRESS_OPTS = --encoding=UTF8
+REGRESS_OPTS = --encoding=UTF8 --temp-instance=tmp_check --temp-config=wal2json.conf
 
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
@@ -30,11 +30,3 @@ ifeq ($(MAJORVERSION),10)
 REGRESS := $(filter-out actions, $(REGRESS))
 endif
 
-# make installcheck
-#
-# It can be run but you need to add the following parameter to
-# postgresql.conf:
-#
-# wal_level = logical
-#
-# Also, you should start the server before executing it.
